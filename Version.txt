@@ -1,0 +1,2 @@
+0.1: Starting version 
+0.2: Priority 1 also considers simultaneous router/server events
