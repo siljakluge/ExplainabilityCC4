@@ -103,7 +103,7 @@ class H_Agent():
                 if 'Processes' in obs[host]:
                     for process in obs[host]['Processes']:
                         if 'Connections' in process:
-                            if 'local_port in' in process['Connections']:
+                            if 'local_port' in process['Connections']:
                                 if process['Connections']['local_port'] == 25:
                                     self.restore_host = np.append(self.restore_host, host)
                                     self.decoy_host = np.append(self.decoy_host, host) 
