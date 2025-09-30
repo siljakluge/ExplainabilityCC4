@@ -41,7 +41,7 @@ def load_submission(source: str):
     if source.endswith(".zip"):
         try:
             # Load submission from zip.
-            from submission.submission import Submission
+            from submission import Submission
         except ImportError as e:
             raise ImportError(
                 """
