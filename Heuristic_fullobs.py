@@ -19,6 +19,9 @@ VERSION = 0.2
 This file will show the whole observation including the red agent with its actions.
 For readability only one subnet will be shown and after every step an input is required to progress.
 You can use this file to understand the behaviour of the agents and potentially find weak points to exploit.
+
+
+WORK IN PROGRESS
 """
 
 #Save information dicts

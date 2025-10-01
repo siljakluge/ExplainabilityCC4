@@ -246,7 +246,7 @@ def run_evaluation(submission, log_path, max_eps=100, write_to_file=False, seed=
         for j in range(EPISODE_LENGTH):
             actions = {
                 agent_name: agent.get_action(
-                    observations[agent_name]#, wrapped_cyborg.action_space(agent_name)
+                    observations[agent_name], wrapped_cyborg.action_space(agent_name)
                 )
                 for agent_name, agent in submission.AGENTS.items()
                 if agent_name in wrapped_cyborg.agents
@@ -274,7 +274,7 @@ def run_evaluation(submission, log_path, max_eps=100, write_to_file=False, seed=
                     }
                 )
         total_reward.append(sum(r))
-
+        print(f"Episode {i+1} Reward: {total_reward[-1]}")
         if write_to_file:
             actions_log.append(a)
             obs_log.append(o)
@@ -382,7 +382,7 @@ if __name__ == "__main__":
 
     if args.distribute == 1:
         run_evaluation(
-            submission, max_eps=args.max_eps, log_path=args.output_path, seed=args.seed
+            submission, max_eps=args.max_eps, log_path=args.output_path, seed=args.seed, write_to_file=True 
         )
     else: 
         run_evaluation_parallel(

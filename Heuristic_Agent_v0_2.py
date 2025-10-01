@@ -34,8 +34,7 @@ Next Steps:
 - Run heuristic agent multiple times to calculate mean and standard deviation of reward
 - Analys red agent observations and actions to find weaknesses
 - Research on how to use 8bit messages and Control Traffic 
-- Document current strategie in ICMCIS(MARL) paper
-- Ceate repository and invite Johannes and Silia for further testing
+- dont analyse a router just after setting a decoy
 
 Goal: 
 - mean reward above -100 with small deviation
@@ -46,6 +45,12 @@ class H_Agent():
 
     def __init__(self, agent_name, init_obs = None):
         self.agent_name = agent_name
+        self._reset_agents()
+
+    def _get_responisble_hosts(self, obs):
+        return [key for key in obs.keys() if key != 'success']
+    
+    def _reset_agents(self):
         self.observations = np.array([])
         self.actions = np.array([])
         self.hosts = np.array([])
@@ -60,18 +65,20 @@ class H_Agent():
         self.last_analysed = None #last analysed host
         self.action_counter = np.array([0,0,0,0,0]) #Monitor, Analyse, DeployDecoy, Remove, Restore
 
-    def _get_responisble_hosts(self, obs):
-        return [key for key in obs.keys() if key != 'success']
-
-    def get_action(self, obs):
+    def get_action(self, obs, action_space):
+        # Reset the agent if a new episode starts (necessary für submission, because the queues are not reset automatically)
+        if obs['success'] == TernaryEnum.UNKNOWN and np.sum(self.action_counter) > 0:
+            self._reset_agents()
         # Init on first observation
         if self.observations.size == 0:
             self.hosts = np.array(self._get_responisble_hosts(obs))
             self.analyse_host['Priority 3'] = np.array(self._get_responisble_hosts(obs))
             self.decoy_host = np.array(self._get_responisble_hosts(obs))
             self.last_analysed = self.hosts[0]
-            
+
+        # Store observation
         self.observations = np.append(self.observations, obs)
+        
         #first action is always Monitor
         if self.actions.size == 0 or obs['success'] == TernaryEnum.IN_PROGRESS:
             action = Monitor(0, self.agent_name)
@@ -134,7 +141,7 @@ class H_Agent():
         # 6.2 Priority 2 for single detected event
         for event in events:
             if event not in self.analyse_host['Priority 2']:
-                self.analyse_host['Priority 2'] = np.append(self.analyse_host['Priority 2'], double_events)
+                self.analyse_host['Priority 2'] = np.append(self.analyse_host['Priority 2'], event)
         # 6.3 Remove the events from Priority 2 which are in Priority 1
         self.analyse_host['Priority 2'] = np.setdiff1d(self.analyse_host['Priority 2'], self.analyse_host['Priority 1'])
 

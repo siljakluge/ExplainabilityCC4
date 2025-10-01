@@ -26,10 +26,10 @@ from Heuristic_Agent_v0_2 import H_Agent
 class Submission:
 
     # Submission name
-    NAME: str = "KEEP"
+    NAME: str = "JustDoIt"
 
     # Name of your team
-    TEAM: str = "Cybermonic"
+    TEAM: str = "SIX"
 
     # What is the name of the technique used? (e.g. Masked PPO)
     TECHNIQUE: str = "Heuristic Agent"
