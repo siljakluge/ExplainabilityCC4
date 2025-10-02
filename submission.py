@@ -15,13 +15,14 @@ import os
 from CybORG import CybORG
 from CybORG.Agents import BaseAgent
 from CybORG.Agents.Wrappers import BlueFixedActionWrapper
+from heuristic_wrapper import HeuristicWrapper
 
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
 
 
 ### Import custom agents here ###
-from Heuristic_Agent_v0_2 import H_Agent
+from Heuristic_Agent import H_Agent
 
 class Submission:
 
@@ -42,5 +43,5 @@ class Submission:
 
     # Use this function to optionally wrap CybORG with your custom wrapper(s).
     def wrap(env: CybORG) -> MultiAgentEnv:
-
-        return BlueFixedActionWrapper(env)
+        return HeuristicWrapper(env)
+        #return BlueFixedActionWrapper(env)

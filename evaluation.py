@@ -1,4 +1,7 @@
 import inspect
+from matplotlib import pyplot as plt
+import pandas as pd
+import numpy as np
 import time
 from statistics import mean, stdev
 
@@ -16,8 +19,42 @@ import json
 import sys
 import os
 
+from pprint import pprint
+
 cyborg_version = CYBORG_VERSION
 EPISODE_LENGTH = 500
+
+
+#Save information dicts
+def save_dict_array_to_csv(arr, filename, folder = None):
+    # Convert numpy array of dicts to list of dicts
+    data = [dict(item) for item in arr]
+    if folder == None:
+         folder = filename[:-4]
+    folder_path= "Results/"+folder+"/"
+    os.makedirs(folder_path, exist_ok=True)
+    # Create DataFrame and save to CSV
+    df = pd.DataFrame(data)
+    df.to_csv(path_or_buf=(folder_path+filename), index=False)
+    print(f"Saved {len(arr)} dictionaries to {filename}")
+
+
+#Plot reward per episode
+def plot_array(data: np.ndarray, title: str = "Mein Graph", folder:str = None):
+    plt.plot(range(len(data)), data, marker='o')
+    plt.title("Total Reward per Episode")
+    plt.xlabel("Episode")
+    plt.ylabel("Total Reward")
+    plt.grid(True)
+    plt.show()
+    if folder != None:
+        folder_path= "Results/"+folder+"/"
+    else:
+         folder_path=""
+    os.makedirs(folder_path, exist_ok=True)
+    plt.savefig(folder_path+title+".png")
+    print(f"Saved Rewards graph")
+
 
 def rmkdir(path: str):
     """Recursive mkdir"""
@@ -204,7 +241,7 @@ def run_evaluation_parallel(submission, log_path, max_eps=100, write_to_file=Fal
             scores.write(f"reward_mean: {reward_mean}\n")
             scores.write(f"reward_stdev: {reward_stdev}\n")
 
-def run_evaluation(submission, log_path, max_eps=100, write_to_file=False, seed=None):
+def run_evaluation(submission, log_path, max_eps=100, write_to_file=False, seed=None, log_step=False, log_agent = 0):
     cyborg_version = CYBORG_VERSION
     EPISODE_LENGTH = 500
     scenario = "Scenario4"
@@ -237,6 +274,7 @@ def run_evaluation(submission, log_path, max_eps=100, write_to_file=False, seed=
     total_reward = []
     actions_log = []
     obs_log = []
+    info_short, log = np.array([]), np.array([])
     for i in tqdm(range(max_eps)):
         observations, _ = wrapped_cyborg.reset()
         r = []
@@ -251,7 +289,19 @@ def run_evaluation(submission, log_path, max_eps=100, write_to_file=False, seed=
                 for agent_name, agent in submission.AGENTS.items()
                 if agent_name in wrapped_cyborg.agents
             }
-            #print(actions)
+
+            if log_step:
+                print("\n")
+                print(f"Step {j+1}\n")
+                print(f"Log for Agent: blue_agent_{log_agent}\n")
+                print(f"Observation:\n")
+                pprint(observations[f"blue_agent_{log_agent}"])
+                print("\n")
+                print(f"Action: {actions[f"blue_agent_{log_agent}"]}\n")
+                print("\n")
+                input("Press Enter to continue...")
+
+
             observations, rew, term, trunc, info = wrapped_cyborg.step(actions)
             done = {
                 agent: term.get(agent, False) or trunc.get(agent, False)
@@ -273,11 +323,33 @@ def run_evaluation(submission, log_path, max_eps=100, write_to_file=False, seed=
                         for agent_name in observations.keys()
                     }
                 )
+                log = np.append(log, {"Episode": i,
+                                "Step": j,
+                                "Observation": observations,
+                                "Actions": actions,
+                                "Reward": mean(rew.values()),
+                                }
+                            )
         total_reward.append(sum(r))
         print(f"Episode {i+1} Reward: {total_reward[-1]}")
         if write_to_file:
             actions_log.append(a)
             obs_log.append(o)
+        info_short = np.append(info_short, 
+                        {"Episode" : i,
+                        "Seed": seed,
+                        "Reward": total_reward[i],
+                        "Monitor Action Count": [agent.action_counter[0] for agent in submission.AGENTS.values()],
+                        "Analyse Action Count":  [agent.action_counter[1] for agent in submission.AGENTS.values()],
+                        "DeployDecoy Action Count": [agent.action_counter[2] for agent in submission.AGENTS.values()],
+                        "Restore Action Count": [agent.action_counter[4] for agent in wrapped_cyborg.agents],
+                        "Remove Action Count": [agent.action_counter[3] for agent in wrapped_cyborg.agents],
+                        list(submission.AGENTS.values())[0].agent_name + "host and servers amount": len(list(submission.AGENTS.values())[0].hosts),
+                        list(submission.AGENTS.values())[1].agent_name + "host and servers amount": len(list(submission.AGENTS.values())[1].hosts),
+                        list(submission.AGENTS.values())[2].agent_name + "host and servers amount": len(list(submission.AGENTS.values())[2].hosts),
+                        list(submission.AGENTS.values())[3].agent_name + "host and servers amount": len(list(submission.AGENTS.values())[3].hosts)
+                        }
+                        )
 
     end = datetime.now()
     difference = end - start
@@ -346,6 +418,22 @@ def run_evaluation(submission, log_path, max_eps=100, write_to_file=False, seed=
         with open(log_path + "scores.txt", "w") as scores:
             scores.write(f"reward_mean: {reward_mean}\n")
             scores.write(f"reward_stdev: {reward_stdev}\n")
+    generall_info = np.array([{"Mean Reward": np.sum(total_reward)/len(total_reward),
+                            "All Rewards": total_reward,
+                            "Agent-Version":"Heuristic_"+list(submission.AGENTS.values())[0].version,
+                            "Mean-Reward": mean(total_reward),
+                            "Stdev-Reward": stdev(total_reward)
+                            }
+                            ])
+    # save info and graph
+    savetime =str(start.year)+str(start.month)+str(start.day)+"_"+str(start.hour)+str(start.minute)+".csv"
+    folder_path = generall_info[0]["Agent-Version"]+"_"+savetime
+    plot_array(data=total_reward, title="Total Rewards per Episode"+savetime, folder=folder_path)
+    save_dict_array_to_csv(filename=("General_info_"+savetime), arr=generall_info, folder=folder_path)
+    save_dict_array_to_csv(filename=("Short_Info_"+savetime), arr=info_short, folder=folder_path)
+    save_dict_array_to_csv(filename=("Log_"+savetime), arr=log, folder=folder_path)
+
+    print("DONE")
 
 
 if __name__ == "__main__":
@@ -360,11 +448,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--seed", type=int, default=None, help="Set the seed for CybORG"
     )
-
-    # Added to speed up evaluation 
     parser.add_argument(
-        '--distribute', type=int, default=1, help="How many parallel workers to use"
+        '--log_step', type=bool, default=False, help="Do you want to observe every step for an agent (default: blue_agent_0)"
+    )    
+    parser.add_argument(
+        '--log_agent', type=int, default=False, help="Which agent do you want to observe (default: blue_agent_0)"
     )
+
     parser.add_argument("--max-eps", type=int, default=100, help="Max episodes to run")
     args = parser.parse_args()
     args.output_path = os.path.abspath('tmp')
@@ -380,11 +470,6 @@ if __name__ == "__main__":
 
     submission = load_submission(args.submission_path)
 
-    if args.distribute == 1:
-        run_evaluation(
-            submission, max_eps=args.max_eps, log_path=args.output_path, seed=args.seed, write_to_file=True 
-        )
-    else: 
-        run_evaluation_parallel(
-            submission, max_eps=args.max_eps, log_path=args.output_path, seed=args.seed, workers=args.distribute
-        )
+    run_evaluation(
+        submission, max_eps=args.max_eps, log_path=args.output_path, seed=args.seed, write_to_file=True, log_step=args.log_step, log_agent=args.log_agent
+    )
