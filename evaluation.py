@@ -241,7 +241,7 @@ def run_evaluation_parallel(submission, log_path, max_eps=100, write_to_file=Fal
             scores.write(f"reward_mean: {reward_mean}\n")
             scores.write(f"reward_stdev: {reward_stdev}\n")
 
-def run_evaluation(submission, log_path, max_eps=100, write_to_file=False, seed=None, log_step=False, log_agent = 0):
+def run_evaluation(submission, log_path, max_eps=100, write_to_file=False, seed=None, log_step=False, log_agent = 0, comment = ""):
     cyborg_version = CYBORG_VERSION
     EPISODE_LENGTH = 500
     scenario = "Scenario4"
@@ -342,12 +342,14 @@ def run_evaluation(submission, log_path, max_eps=100, write_to_file=False, seed=
                         "Monitor Action Count": [agent.action_counter[0] for agent in submission.AGENTS.values()],
                         "Analyse Action Count":  [agent.action_counter[1] for agent in submission.AGENTS.values()],
                         "DeployDecoy Action Count": [agent.action_counter[2] for agent in submission.AGENTS.values()],
-                        "Restore Action Count": [agent.action_counter[4] for agent in wrapped_cyborg.agents],
-                        "Remove Action Count": [agent.action_counter[3] for agent in wrapped_cyborg.agents],
-                        list(submission.AGENTS.values())[0].agent_name + "host and servers amount": len(list(submission.AGENTS.values())[0].hosts),
-                        list(submission.AGENTS.values())[1].agent_name + "host and servers amount": len(list(submission.AGENTS.values())[1].hosts),
-                        list(submission.AGENTS.values())[2].agent_name + "host and servers amount": len(list(submission.AGENTS.values())[2].hosts),
-                        list(submission.AGENTS.values())[3].agent_name + "host and servers amount": len(list(submission.AGENTS.values())[3].hosts)
+                        "Restore Action Count": [agent.action_counter[4] for agent in submission.AGENTS.values()],
+                        "Remove Action Count": [agent.action_counter[3] for agent in submission.AGENTS.values()],
+                        "Blocked Traffic Action Count": [agent.action_counter[5] for agent in submission.AGENTS.values()],
+                        "Allowed Traffic Action Count": [agent.action_counter[6] for agent in submission.AGENTS.values()],
+                        list(submission.AGENTS.values())[0].agent_name + " host and servers amount": len(list(submission.AGENTS.values())[0].hosts),
+                        list(submission.AGENTS.values())[1].agent_name + " host and servers amount": len(list(submission.AGENTS.values())[1].hosts),
+                        list(submission.AGENTS.values())[2].agent_name + " host and servers amount": len(list(submission.AGENTS.values())[2].hosts),
+                        list(submission.AGENTS.values())[3].agent_name + " host and servers amount": len(list(submission.AGENTS.values())[3].hosts)
                         }
                         )
 
@@ -422,12 +424,13 @@ def run_evaluation(submission, log_path, max_eps=100, write_to_file=False, seed=
                             "All Rewards": total_reward,
                             "Agent-Version":"Heuristic_"+list(submission.AGENTS.values())[0].version,
                             "Mean-Reward": mean(total_reward),
-                            "Stdev-Reward": stdev(total_reward)
+                            "Stdev-Reward": stdev(total_reward),
+                            "Comment": "First try of allowing to control traffic without the HG internal control" + comment
                             }
                             ])
     # save info and graph
     savetime =str(start.year)+str(start.month)+str(start.day)+"_"+str(start.hour)+str(start.minute)+".csv"
-    folder_path = generall_info[0]["Agent-Version"]+"_"+savetime
+    folder_path = generall_info[0]["Agent-Version"]+"_"+savetime[:-4]
     plot_array(data=total_reward, title="Total Rewards per Episode"+savetime, folder=folder_path)
     save_dict_array_to_csv(filename=("General_info_"+savetime), arr=generall_info, folder=folder_path)
     save_dict_array_to_csv(filename=("Short_Info_"+savetime), arr=info_short, folder=folder_path)
@@ -454,6 +457,9 @@ if __name__ == "__main__":
     parser.add_argument(
         '--log_agent', type=int, default=False, help="Which agent do you want to observe (default: blue_agent_0)"
     )
+    parser.add_argument(
+        '--comment', type=str, default=False, help="additional comment to save in general information"
+    )
 
     parser.add_argument("--max-eps", type=int, default=100, help="Max episodes to run")
     args = parser.parse_args()
@@ -471,5 +477,5 @@ if __name__ == "__main__":
     submission = load_submission(args.submission_path)
 
     run_evaluation(
-        submission, max_eps=args.max_eps, log_path=args.output_path, seed=args.seed, write_to_file=True, log_step=args.log_step, log_agent=args.log_agent
+        submission, max_eps=args.max_eps, log_path=args.output_path, seed=args.seed, write_to_file=True, log_step=args.log_step, log_agent=args.log_agent, comment=args.comment
     )
