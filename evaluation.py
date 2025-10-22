@@ -258,7 +258,8 @@ def run_evaluation(submission,
                    seed=None, 
                    log_step=False, 
                    log_agent = 0, 
-                   comment = ""
+                   comment = "",
+                   mask_enable=True
                    ):
     cyborg_version = CYBORG_VERSION
     EPISODE_LENGTH = 500
@@ -276,7 +277,7 @@ def run_evaluation(submission,
     )
     cyborg = CybORG(sg, "sim", seed=seed)
     wrapped_cyborg = submission.wrap(cyborg)
-    
+    wrapped_cyborg.mask_enable = mask_enable
     print(version_header)
     print(author_header)
     print(
@@ -479,6 +480,9 @@ if __name__ == "__main__":
     parser.add_argument(
         '--comment', type=str, default="", help="additional comment to save in general information"
     )
+    parser.add_argument(
+        '--mask_enable', type=bool, default=True, help="Enable masking of messages"
+    )
 
     parser.add_argument("--max-eps", type=int, default=100, help="Max episodes to run")
     args = parser.parse_args()
@@ -503,5 +507,6 @@ if __name__ == "__main__":
         write_to_file=True, 
         log_step=args.log_step, 
         log_agent=args.log_agent, 
-        comment=args.comment
+        comment=args.comment,
+        mask_enable=args.mask_enable
     )

@@ -32,19 +32,18 @@ Generall stategie:
 
 Next Steps:
 - Analys red agent observations and actions to find weaknesses
-- Research on how to use 8bit messages and Control Traffic 
-    - start by just blocking traffic from one subnet to another at the beginning of the episode if there is a red agent
-    - allow traffic again if compromised server has been restored
+- embed the mission status in as a mask for the message
 - maybe analyse a prio 1 and 2 event 3 or 2 times in a row or with a tick in between. depends on the red agents behaviour.
 - red agent prefers to target a server host over a user one, which should be reflected in queue strategie
-set FP to 1 or 0 to see effects on standard deviation
+- set FP to 1 or 0 to see effects on standard deviation
 
 Open points for strategie:
-- Currently the 8bit messages are not used between agents
-- Blue agents Control Traffic action is not used -> Combine with 8bit messages
+- Currently the 8bit messages are barely used
+- Blue agents Control Traffic action is used in basic form
 - No strategie behind decoy placement. They are just deployed as soon as possible
 - No further analysation of red agents behaviour
 - Reward is unstable
+- analyse the episodes with very low reward
 
 List of subnets:
 - restricted_zone_a_subnet
@@ -59,16 +58,22 @@ Goal:
 - mean reward above -100 with small deviation
 - RL agent based on final heuristic version to find out if it can beat heuristic agent
 """
-
-VERSION = "0.4"
-ENABLE_BLOCKING = True
-ENABLE_HQ_BLOCKING = False
+"""
+To do heute:
+ - Mission status implementieren und die messagnes darauf anpassen
+ - prio 3 queue mit höherere server priorität und besonders hoch für server0
+ - evtl. blocking in hq agent implementieren
+"""
+VERSION = "0.5"
+ENABLE_BLOCKING = False
+ENABLE_HQ_BLOCKING = True
 
 class H_Agent():
 
     def __init__(self, agent_name, init_obs = None):
         self.agent_name = agent_name
         self.version = VERSION
+        self.enable_blocking = ENABLE_BLOCKING
         self._reset_agents()
 
     def _get_responsible_hosts(self, obs):
@@ -153,7 +158,11 @@ class H_Agent():
 
         # Check if any event has been detected
         events = [item for item in self.hosts if item in list(obs.keys()) and len(self.observations) > 1]
+        # interpret message
+        if "message" in obs.keys() and ENABLE_BLOCKING:
+            self._interpret_message(obs["message"])
         # Remove events that only occure because of last action
+
         # If Deployed as last action
         if "action" in obs.keys():
             if isinstance(obs["action"], DeployDecoy):

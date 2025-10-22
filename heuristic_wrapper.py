@@ -9,8 +9,11 @@ This wrapper is supposed to create the messages between the agent and acts a kin
 class HeuristicWrapper(BlueFixedActionWrapper):
     def __init__(self, env):
         super().__init__(env)
+        self.env = env
+        self.mask_enable = True
         self.agents = [agent for agent in env.agents if "blue" in agent]
         self.messages = {agent: np.array([0]*8) for agent in self.agents}
+        self.mission = self.env.environment_controller.state.mission_phase
 
     def reset(self):
         return super().reset()
@@ -20,57 +23,54 @@ class HeuristicWrapper(BlueFixedActionWrapper):
         Mask the observation, that messages are returned in correct order
         die agenten scheinen immer auf die gleichen subnets gelegt zu werden.
         Info:
+
         Agent 0 - Deployed Network A - restricted Zone
         Agent 1 - Deployed Network A - operational Zone
         Agent 2 - Deployed Network B - restricted Zone
         Agent 3 - Deployed Network B - operational Zone
         Agent 4 - HG
+        origin_table = {"blue_agent_0": ["operational_zone_a_subnet", "restricted_zone_b_subnet", "operational_zone_b_subnet", "public_access_zone_subnet"],
+                        "blue_agent_1": ["restricted_zone_a_subnet", "restricted_zone_b_subnet", "operational_zone_b_subnet", "public_access_zone_subnet"],
+                        "blue_agent_2": ["restricted_zone_a_subnet", "operational_zone_a_subnet", "operational_zone_b_subnet", "public_access_zone_subnet"],
+                        "blue_agent_3": ["restricted_zone_a_subnet", "operational_zone_a_subnet", "restricted_zone_b_subnet", "public_access_zone_subnet"],
+                        "blue_agent_4": ["restricted_zone_a_subnet", "operational_zone_a_subnet", "restricted_zone_b_subnet", "operational_zone_b_subnet"]}
 
-        Ziel
-        -   Die erste Nachricht ist vom cooperierendem Subnet im gleichen Netzwerk
-        -   Die zweite Nachricht ist von der restricted zone des anderen Netzwerks
-        -   Die dritte Nachricht ist von der operational zone des anderen Netzwerks
-        -   Die vierte Nachricht ist vom der HG
-        -   Agent 4 bekommt eine sinderstellung und wird nicht angepasst
-
-        Before masking
-                    Message from Agent in Position:
-                    0   1   2   3
-
-        Agent_0:    1   2   3   4
-        Agent_1:    0   2   3   4
-        Agent_2:    0   1   3   4
-        Agent_3:    0   1   2   4
-        Agent_4:    0   1   2   3
-        
-                Message from Agent in Position:
-                    0   1   2   3
-
-        Agent_0:    1   2   3   4
-        Agent_1:    0   2   3   4
-        Agent_2:    3   0   1   4
-        Agent_3:    2   0   1   4
-        Agent_4:    0   1   2   3
-        """
-        if False:
+       """
+        # never try to block a host that is cut off from the rest of the network
+        # operational zones can only receive messages from ther restricted zone in the same network
+        if self.mask_enable:
             for agent in list(obs.keys()):
                 match agent:
-                    case "blue_agent_0":
-                        pass
+                    case "blue_agent_0": # restricted zone A
+                        if self.mission == 1:
+                            obs[agent]['message'][1][0] = 0 # mask message from operational zone A
+                        obs[agent]['message'][2][0] = 0 # mask message from operational zone B
                     case "blue_agent_1":
-                        pass
-                    case "blue_agent_2":
-                        obs[agent]['message'][0], obs[agent]['message'][2] = obs[agent]['message'][2], obs[agent]['message'][0]
-                        obs[agent]['message'][1], obs[agent]['message'][2] = obs[agent]['message'][2], obs[agent]['message'][1]
-                    case "blue_agent_3":
-                        obs[agent]['message'][0], obs[agent]['message'][2] = obs[agent]['message'][2], obs[agent]['message'][0]
-                        obs[agent]['message'][1], obs[agent]['message'][2] = obs[agent]['message'][2], obs[agent]['message'][1]
-                    case "blue_agent_4":
-                        pass
+                        if self.mission == 1: # operational zone A
+                            for i in range(len(obs[agent]['message'])): # mask all messages
+                                obs[agent]['message'][i][0] = 0
+                        obs[agent]['message'][1][0] = 0 # mask all except from restricted zone A
+                        obs[agent]['message'][2][0] = 0
+                        obs[agent]['message'][3][0] = 0
+                    case "blue_agent_2": # restricted zone B
+                        if self.mission == 2:
+                            obs[agent]['message'][2][0] = 0 # mask message from operational zone B
+                        obs[agent]['message'][1][0] = 0 # mask message from operational zone A
+                    case "blue_agent_3": # operational zone B
+                        if self.mission == 2:
+                            for i in range(len(obs[agent]['message'])): # mask all messages
+                                obs[agent]['message'][i][0] = 0
+                        obs[agent]['message'][0][0] = 0 # mask all except from restricted zone B 
+                        obs[agent]['message'][1][0] = 0 
+                        obs[agent]['message'][3][0] = 0
+                    case "blue_agent_4": #HQ
+                        obs[agent]['message'][1][0] = 0 # mask message from operational zone A
+                        obs[agent]['message'][3][0] = 0 # mask message from operational zone B
         return obs
 
     def step(self, action):
         self._update_messages(action)
+        self.mission = self.env.environment_controller.state.mission_phase
         obs, reward, done, trunc, info = super().step(action, self.messages)
         return self._mask_obs(obs), reward, done, trunc, info
     
@@ -106,7 +106,7 @@ class HeuristicWrapper(BlueFixedActionWrapper):
         """      
         for agent, action in actions.items():
             obs = super().get_observation(agent)
-            if isinstance(action, Restore) and "server_host_0" in str(action) and 'admin_network' not in str(action) and 'office_network' in str(action):
+            if isinstance(action, Restore) and "server_host_0" in str(action) and 'admin_network' not in str(action) and 'office_network' not in str(action):
                 self.messages[agent][0] = 1
             elif 'action' in obs.keys():
                 if isinstance(obs['action'], Restore) and obs['success'] == TernaryEnum.TRUE and "server_host_0" in str(obs['action']):
@@ -122,6 +122,7 @@ class HeuristicWrapper(BlueFixedActionWrapper):
             elif agent == "blue_agent_3":   
                 self.messages[agent][3] = 1
             elif agent == "blue_agent_4":
-                self.messages[agent][4] = 1"""
+                self.messages[agent][4] = 1
+        """
         return 
         
