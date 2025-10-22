@@ -1,8 +1,8 @@
 import inspect
 from matplotlib import pyplot as plt
-import pandas as pd
 import numpy as np
 import time
+import json
 from statistics import mean, stdev
 
 from tqdm import tqdm 
@@ -11,37 +11,47 @@ from joblib import Parallel, delayed
 from CybORG import CybORG, CYBORG_VERSION
 from CybORG.Agents import SleepAgent, EnterpriseGreenAgent, FiniteStateRedAgent
 from CybORG.Simulator.Scenarios import EnterpriseScenarioGenerator
+from CybORG.Agents.Wrappers import BlueEnterpriseWrapper
 
 from datetime import datetime
-
-import json
-
 import sys
 import os
 
 from pprint import pprint
+
+class CustomGreenAgent(EnterpriseGreenAgent):
+    def __init__(self, name, own_ip, np_random=None):
+        super().__init__(name, own_ip, np_random, fp_detection_rate=0.01, phishing_error_rate=0.01)  # Set your value here
+
 
 cyborg_version = CYBORG_VERSION
 EPISODE_LENGTH = 500
 
 
 #Save information dicts
-def save_dict_array_to_csv(arr, filename, folder = None):
+def save_dict_array_to_json(arr, filename, folder = None):
     # Convert numpy array of dicts to list of dicts
     data = [dict(item) for item in arr]
     if folder == None:
-         folder = filename[:-4]
+         folder = filename[:-5] if filename.endswith('.json') else filename
     folder_path= "Results/"+folder+"/"
     os.makedirs(folder_path, exist_ok=True)
-    # Create DataFrame and save to CSV
-    df = pd.DataFrame(data)
-    df.to_csv(path_or_buf=(folder_path+filename), index=False)
+    
+    # Ensure filename has .json extension
+    if not filename.endswith('.json'):
+        filename += '.json'
+    
+    # Save as JSON file
+    with open(folder_path + filename, 'w') as f:
+        json.dump(data, f, indent=2, default=str)
     print(f"Saved {len(arr)} dictionaries to {filename}")
 
 
 #Plot reward per episode
 def plot_array(data: np.ndarray, title: str = "Mein Graph", folder:str = None):
     plt.plot(range(len(data)), data, marker='o')
+    plt.xlim(0, len(data))
+    plt.ylim(-400,0)
     plt.title("Total Reward per Episode")
     plt.xlabel("Episode")
     plt.ylabel("Total Reward")
@@ -241,13 +251,22 @@ def run_evaluation_parallel(submission, log_path, max_eps=100, write_to_file=Fal
             scores.write(f"reward_mean: {reward_mean}\n")
             scores.write(f"reward_stdev: {reward_stdev}\n")
 
-def run_evaluation(submission, log_path, max_eps=100, write_to_file=False, seed=None, log_step=False, log_agent = 0, comment = ""):
+def run_evaluation(submission, 
+                   log_path, 
+                   max_eps=100, 
+                   write_to_file=False, 
+                   seed=None, 
+                   log_step=False, 
+                   log_agent = 0, 
+                   comment = ""
+                   ):
     cyborg_version = CYBORG_VERSION
     EPISODE_LENGTH = 500
     scenario = "Scenario4"
 
     version_header = f"CybORG v{cyborg_version}, {scenario}"
     author_header = f"Author: {submission.NAME}, Team: {submission.TEAM}, Technique: {submission.TECHNIQUE}"
+
 
     sg = EnterpriseScenarioGenerator(
         blue_agent_class=SleepAgent,
@@ -270,6 +289,7 @@ def run_evaluation(submission, log_path, max_eps=100, write_to_file=False, seed=
         print(f"Results will be saved to {log_path}")
 
     start = datetime.now()
+    savetime =str(start.year)+str(start.month)+str(start.day)+"_"+str(start.hour)+str(start.minute)
 
     total_reward = []
     actions_log = []
@@ -280,7 +300,6 @@ def run_evaluation(submission, log_path, max_eps=100, write_to_file=False, seed=
         r = []
         a = []
         o = []
-        count = 0
         for j in range(EPISODE_LENGTH):
             actions = {
                 agent_name: agent.get_action(
@@ -421,20 +440,20 @@ def run_evaluation(submission, log_path, max_eps=100, write_to_file=False, seed=
             scores.write(f"reward_mean: {reward_mean}\n")
             scores.write(f"reward_stdev: {reward_stdev}\n")
     generall_info = np.array([{"Mean Reward": np.sum(total_reward)/len(total_reward),
-                            "All Rewards": total_reward,
                             "Agent-Version":"Heuristic_"+list(submission.AGENTS.values())[0].version,
                             "Mean-Reward": mean(total_reward),
                             "Stdev-Reward": stdev(total_reward),
-                            "Comment": "First try of allowing to control traffic without the HG internal control" + comment
-                            }
+                            "Comment": "" + comment,
+                            "Start": savetime,
+                            "Control Traffic": list(submission.AGENTS.values())[0].enable_blocking,
+                            "All Rewards": total_reward}
                             ])
     # save info and graph
-    savetime =str(start.year)+str(start.month)+str(start.day)+"_"+str(start.hour)+str(start.minute)+".csv"
-    folder_path = generall_info[0]["Agent-Version"]+"_"+savetime[:-4]
+    folder_path = generall_info[0]["Agent-Version"]+"_"+savetime
     plot_array(data=total_reward, title="Total Rewards per Episode"+savetime, folder=folder_path)
-    save_dict_array_to_csv(filename=("General_info_"+savetime), arr=generall_info, folder=folder_path)
-    save_dict_array_to_csv(filename=("Short_Info_"+savetime), arr=info_short, folder=folder_path)
-    save_dict_array_to_csv(filename=("Log_"+savetime), arr=log, folder=folder_path)
+    save_dict_array_to_json(filename=("General_info_"+savetime+".json"), arr=generall_info, folder=folder_path)
+    save_dict_array_to_json(filename=("Short_Info_"+savetime+".json"), arr=info_short, folder=folder_path)
+    save_dict_array_to_json(filename=("Log_"+savetime+".json"), arr=log, folder=folder_path)
 
     print("DONE")
 
@@ -458,7 +477,7 @@ if __name__ == "__main__":
         '--log_agent', type=int, default=False, help="Which agent do you want to observe (default: blue_agent_0)"
     )
     parser.add_argument(
-        '--comment', type=str, default=False, help="additional comment to save in general information"
+        '--comment', type=str, default="", help="additional comment to save in general information"
     )
 
     parser.add_argument("--max-eps", type=int, default=100, help="Max episodes to run")
@@ -477,5 +496,12 @@ if __name__ == "__main__":
     submission = load_submission(args.submission_path)
 
     run_evaluation(
-        submission, max_eps=args.max_eps, log_path=args.output_path, seed=args.seed, write_to_file=True, log_step=args.log_step, log_agent=args.log_agent, comment=args.comment
+        submission, 
+        max_eps=args.max_eps, 
+        log_path=args.output_path, 
+        seed=args.seed, 
+        write_to_file=True, 
+        log_step=args.log_step, 
+        log_agent=args.log_agent, 
+        comment=args.comment
     )
