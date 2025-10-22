@@ -1,4 +1,3 @@
-import inspect
 from matplotlib import pyplot as plt
 import numpy as np
 import time
@@ -11,7 +10,6 @@ from joblib import Parallel, delayed
 from CybORG import CybORG, CYBORG_VERSION
 from CybORG.Agents import SleepAgent, EnterpriseGreenAgent, FiniteStateRedAgent
 from CybORG.Simulator.Scenarios import EnterpriseScenarioGenerator
-from CybORG.Agents.Wrappers import BlueEnterpriseWrapper
 
 from datetime import datetime
 import sys
@@ -440,13 +438,14 @@ def run_evaluation(submission,
         with open(log_path + "scores.txt", "w") as scores:
             scores.write(f"reward_mean: {reward_mean}\n")
             scores.write(f"reward_stdev: {reward_stdev}\n")
-    generall_info = np.array([{"Mean Reward": np.sum(total_reward)/len(total_reward),
-                            "Agent-Version":"Heuristic_"+list(submission.AGENTS.values())[0].version,
+    generall_info = np.array([{"Agent-Version":"Heuristic_"+list(submission.AGENTS.values())[0].version,
                             "Mean-Reward": mean(total_reward),
                             "Stdev-Reward": stdev(total_reward),
                             "Comment": "" + comment,
                             "Start": savetime,
                             "Control Traffic": list(submission.AGENTS.values())[0].enable_blocking,
+                            "Analyse Priority": list(submission.AGENTS.values())[0].enable_priority,
+                            "priority levels": list(submission.AGENTS.values())[0].priority_weights,
                             "All Rewards": total_reward}
                             ])
     # save info and graph

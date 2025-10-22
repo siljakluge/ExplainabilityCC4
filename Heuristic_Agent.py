@@ -1,11 +1,13 @@
 import numpy as np
+import random
 from collections import Counter
 
 from CybORG.Simulator.Actions import Monitor , Analyse, DeployDecoy, Remove, Restore
 from CybORG.Simulator.Actions.ConcreteActions.ControlTraffic import AllowTrafficZone, BlockTrafficZone 
 from CybORG.Shared.Enums import TernaryEnum
 
-from copy import deepcopy 
+from copy import deepcopy
+
 
 
 """
@@ -60,13 +62,14 @@ Goal:
 """
 """
 To do heute:
- - Mission status implementieren und die messagnes darauf anpassen
- - prio 3 queue mit höherere server priorität und besonders hoch für server0
  - evtl. blocking in hq agent implementieren
 """
 VERSION = "0.5"
 ENABLE_BLOCKING = False
 ENABLE_HQ_BLOCKING = True
+ENABLE_PRIORITY = True
+WEIGHTS_PRIORITY = [1.5,2,1] # priority 1,2,3
+
 
 class H_Agent():
 
@@ -74,6 +77,8 @@ class H_Agent():
         self.agent_name = agent_name
         self.version = VERSION
         self.enable_blocking = ENABLE_BLOCKING
+        self.enable_priority = ENABLE_PRIORITY
+        self.priority_weights = WEIGHTS_PRIORITY
         self._reset_agents()
 
     def _get_responsible_hosts(self, obs):
@@ -113,7 +118,39 @@ class H_Agent():
                   "blue_agent_4": "public_access_zone_subnet"}
         return subnets[name]
         
-   
+    def _chosen_host_to_analyse(self):
+        # Priority: server_0 > other servers > users
+        if not ENABLE_PRIORITY:
+            return self.analyse_host['Priority 3'][0]
+        servers = []
+        servers_0 = []
+        rest = [] # users and router
+        b = random.uniform(0,1)
+        for host in self.analyse_host['Priority 3']:
+            if 'server_host_0' in host:
+                servers_0.append(host)
+            elif 'server' in host and host not in servers_0:
+                servers.append(host)
+            else:
+                rest.append(host)
+        assert len(servers_0) + len(servers) + len(rest) == len(self.analyse_host['Priority 3']), "Error in host classification"
+        assert len(servers_0) != 0, "empty list error"
+        assert len(rest) != 0, "empty list error"
+
+        a = 1/(self.priority_weights[0] * len(servers_0) + self.priority_weights[1] * len(servers) + self.priority_weights[2] * len(rest))
+        eps_server_0 = self.priority_weights[0] * a * len(servers_0) # 1 server_0 (3 for HG)
+        eps_server = self.priority_weights[1] * a * len(servers) # 1-6 servers including server_0, but excluded in later choice
+        eps_rest = self.priority_weights[2] * a * len(rest) # 3-10 user hosts
+        assert eps_server_0  + eps_server + eps_rest >= 0.99, "Error in epsilon values."
+        assert eps_server_0  + eps_server + eps_rest <= 1.01, "Error in epsilon values."
+        if b <= eps_server_0 and len(servers_0) > 0:
+            return servers_0[0]
+        elif b <= eps_server_0 + eps_server and len(servers) > 0:
+            return servers[0]
+        elif len(rest) > 0:
+            return rest[0]
+        else:
+            return self.analyse_host['Priority 3'][0]
 
     def _interpret_message(self, message):
         origin_table = {"blue_agent_0": ["operational_zone_a_subnet", "restricted_zone_b_subnet", "operational_zone_b_subnet", "public_access_zone_subnet"],
@@ -280,12 +317,13 @@ class H_Agent():
             else:
                 action = DeployDecoy(session=0, agent=self.agent_name, hostname=self.decoy_host[0])
                 self.decoy_host = self.decoy_host[1:]
-        # 7.8 Defaul Action is to anlyse a host and set this host to the end of the list afterwards
+        # 7.8 Default Action is to analyse a host and set this host to the end of the list afterwards
         else:
-            action = Analyse(session=0, agent=self.agent_name, hostname=self.analyse_host['Priority 3'][0])
-            self.last_analysed = self.analyse_host['Priority 3'][0]
-            self.analyse_host['Priority 3'].remove(self.last_analysed)
-            self.analyse_host['Priority 3'].append(self.last_analysed)
+            hostname = self._chosen_host_to_analyse()
+            action = Analyse(session=0, agent=self.agent_name, hostname= hostname)
+            self.last_analysed = hostname
+            self.analyse_host['Priority 3'].remove(hostname)
+            self.analyse_host['Priority 3'].append(hostname)
 
         
         # 8. Store and count action selection
