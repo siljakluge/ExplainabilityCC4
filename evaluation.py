@@ -461,8 +461,9 @@ def run_evaluation(submission,
                             "Analyse Priority": list(submission.AGENTS.values())[0].enable_priority,
                             "priority levels": list(submission.AGENTS.values())[0].priority_weights,
                             "Control HQ Traffic": list(submission.AGENTS.values())[0].enable_hq_blocking,
-                            "Mask Enabled": mask_enable
-                            "All Rewards": total_reward}
+                            "Mask Enabled": mask_enable,
+                            "All Rewards": total_reward
+                            }
                             ])
     # save info and graph
     folder_path = generall_info[0]["Agent-Version"]+"_"+savetime
