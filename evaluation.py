@@ -257,7 +257,11 @@ def run_evaluation(submission,
                    log_step=False, 
                    log_agent = 0, 
                    comment = "",
-                   mask_enable=True
+                   mask_enable=True,
+                   priority_weights = [3,2,1],
+                   enable_blocking = True,
+                   enable_hq_blocking = False,
+                   enable_priority = True
                    ):
     cyborg_version = CYBORG_VERSION
     EPISODE_LENGTH = 500
@@ -275,12 +279,20 @@ def run_evaluation(submission,
     )
     cyborg = CybORG(sg, "sim", seed=seed)
     wrapped_cyborg = submission.wrap(cyborg)
+    # Wrapper setup
     wrapped_cyborg.mask_enable = mask_enable
     print(version_header)
     print(author_header)
     print(
         f"Using agents {submission.AGENTS}, if this is incorrect please update the code to load in your agent"
     )
+
+    #agent setup
+    for agent_name, agent in submission.AGENTS.items():
+        agent.priority_weights = priority_weights
+        agent.enable_blocking = enable_blocking
+        agent.enable_hq_blocking = enable_hq_blocking
+        agent.enable_priority = enable_priority
 
     if write_to_file:
         if not log_path.endswith("/"):
@@ -307,7 +319,6 @@ def run_evaluation(submission,
                 for agent_name, agent in submission.AGENTS.items()
                 if agent_name in wrapped_cyborg.agents
             }
-
             if log_step:
                 print("\n")
                 print(f"Step {j+1}\n")
@@ -341,10 +352,13 @@ def run_evaluation(submission,
                         for agent_name in observations.keys()
                     }
                 )
+                all_actions = wrapped_cyborg.env.environment_controller.action
+                red_actions = {agent: act for agent, act in all_actions.items() if "red" in agent}
                 log = np.append(log, {"Episode": i,
                                 "Step": j,
                                 "Observation": observations,
                                 "Actions": actions,
+                                "Red-Actions": red_actions,
                                 "Reward": mean(rew.values()),
                                 }
                             )
@@ -446,6 +460,8 @@ def run_evaluation(submission,
                             "Control Traffic": list(submission.AGENTS.values())[0].enable_blocking,
                             "Analyse Priority": list(submission.AGENTS.values())[0].enable_priority,
                             "priority levels": list(submission.AGENTS.values())[0].priority_weights,
+                            "Control HQ Traffic": list(submission.AGENTS.values())[0].enable_hq_blocking,
+                            "Mask Enabled": mask_enable
                             "All Rewards": total_reward}
                             ])
     # save info and graph
@@ -461,6 +477,16 @@ def run_evaluation(submission,
 if __name__ == "__main__":
     import argparse
 
+    def str2bool(v):
+        if isinstance(v, bool):
+            return v
+        if v.lower() in ('yes', 'true', 't', 'y', '1'):
+            return True
+        elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+            return False
+        else:
+            raise argparse.ArgumentTypeError('Boolean value expected.')
+
     parser = argparse.ArgumentParser("CybORG Evaluation Script")
     parser.add_argument(
         "--append-timestamp",
@@ -471,7 +497,7 @@ if __name__ == "__main__":
         "--seed", type=int, default=None, help="Set the seed for CybORG"
     )
     parser.add_argument(
-        '--log_step', type=bool, default=False, help="Do you want to observe every step for an agent (default: blue_agent_0)"
+        '--log_step', type=str2bool, default=False, help="Do you want to observe every step for an agent (default: blue_agent_0)"
     )    
     parser.add_argument(
         '--log_agent', type=int, default=False, help="Which agent do you want to observe (default: blue_agent_0)"
@@ -480,10 +506,24 @@ if __name__ == "__main__":
         '--comment', type=str, default="", help="additional comment to save in general information"
     )
     parser.add_argument(
-        '--mask_enable', type=bool, default=True, help="Enable masking of messages"
+        '--mask_enable', type=str2bool, default=True, help="Enable masking of messages"
+    )
+    parser.add_argument(
+        '--prio_weights', type=int, nargs='+', default=[3,2,1], 
+        help="Priority to analyse specific kind of server"
+    )
+    parser.add_argument(
+        '--enable_blocking', type=str2bool, default=True, help="Enable blocking of communication between subnet"
+    )
+    parser.add_argument(
+        '--enable_hq_blocking', type=str2bool, default=False, help="Enable blocking of communication in the HQ"
+    )
+    parser.add_argument(
+        '--enable_prio', type=str2bool, default=True, help="Enable priority for analysing"
     )
 
     parser.add_argument("--max-eps", type=int, default=100, help="Max episodes to run")
+    
     args = parser.parse_args()
     args.output_path = os.path.abspath('tmp')
     args.submission_path = os.path.abspath('')
@@ -507,5 +547,10 @@ if __name__ == "__main__":
         log_step=args.log_step, 
         log_agent=args.log_agent, 
         comment=args.comment,
-        mask_enable=args.mask_enable
+        mask_enable=args.mask_enable,
+        enable_blocking=args.enable_blocking,
+        priority_weights=args.prio_weights,
+        enable_hq_blocking=args.enable_hq_blocking,
+        enable_priority=args.enable_prio
+
     )
