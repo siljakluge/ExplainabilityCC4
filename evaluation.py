@@ -264,7 +264,8 @@ def run_evaluation(submission,
                    enable_priority = True,
                    aggressive_analyse = False,
                    aggressive_analyse_rep = [3,2],
-                   always_restore = False
+                   always_restore = False,
+                   name = ""
                    ):
     cyborg_version = CYBORG_VERSION
     EPISODE_LENGTH = 500
@@ -477,7 +478,7 @@ def run_evaluation(submission,
                             }
                             ])
     # save info and graph
-    folder_path = generall_info[0]["Agent-Version"]+"_"+savetime
+    folder_path = generall_info[0]["Agent-Version"]+"_"+savetime+"_"+name
     plot_array(data=total_reward, title="Total Rewards per Episode"+savetime, folder=folder_path)
     save_dict_array_to_json(filename=("General_info_"+savetime+".json"), arr=generall_info, folder=folder_path)
     save_dict_array_to_json(filename=("Short_Info_"+savetime+".json"), arr=info_short, folder=folder_path)
@@ -531,7 +532,7 @@ if __name__ == "__main__":
         '--enable_hq_blocking', type=str2bool, default=False, help="Enable blocking of communication in the HQ"
     )
     parser.add_argument(
-        '--enable_prio', type=str2bool, default=True, help="Enable priority for analysing"
+        '--enable_prio', type=str2bool, default=False, help="Enable priority for analysing"
     )
     parser.add_argument(
         '--always_restore', type=str2bool, default=False, help="Enable always restoring a host instead of removing files"
@@ -541,6 +542,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         '--aggressive_analyse_rep', type=int, nargs='+', default=[3,2], help="Repetitions of analysis of suspicious hosts (Prio1, Prio2)"
+    )
+    parser.add_argument(
+        '--name', type=str, default="", help="Folder name for results (default: Agent-Version_Timestamp)"
     )
 
     parser.add_argument("--max-eps", type=int, default=100, help="Max episodes to run")
@@ -575,5 +579,6 @@ if __name__ == "__main__":
         enable_priority=args.enable_prio,
         always_restore=args.always_restore,
         aggressive_analyse=args.aggressive_analyse,
-        aggressive_analyse_rep=args.aggressive_analyse_rep
+        aggressive_analyse_rep=args.aggressive_analyse_rep, 
+        name=args.name
     )

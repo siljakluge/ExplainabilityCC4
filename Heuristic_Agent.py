@@ -70,7 +70,7 @@ To do heute:
     - repetition of analysation based on weights
  """
 
-VERSION = "0.6"
+VERSION = "1.0"
 ENABLE_BLOCKING = True
 ENABLE_HQ_BLOCKING = False
 ENABLE_PRIORITY = True
