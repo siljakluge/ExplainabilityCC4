@@ -261,7 +261,10 @@ def run_evaluation(submission,
                    priority_weights = [3,2,1],
                    enable_blocking = True,
                    enable_hq_blocking = False,
-                   enable_priority = True
+                   enable_priority = True,
+                   aggressive_analyse = False,
+                   aggressive_analyse_rep = [3,2],
+                   always_restore = False
                    ):
     cyborg_version = CYBORG_VERSION
     EPISODE_LENGTH = 500
@@ -281,11 +284,6 @@ def run_evaluation(submission,
     wrapped_cyborg = submission.wrap(cyborg)
     # Wrapper setup
     wrapped_cyborg.mask_enable = mask_enable
-    print(version_header)
-    print(author_header)
-    print(
-        f"Using agents {submission.AGENTS}, if this is incorrect please update the code to load in your agent"
-    )
 
     #agent setup
     for agent_name, agent in submission.AGENTS.items():
@@ -293,6 +291,15 @@ def run_evaluation(submission,
         agent.enable_blocking = enable_blocking
         agent.enable_hq_blocking = enable_hq_blocking
         agent.enable_priority = enable_priority
+        agent.aggressive_analyse = aggressive_analyse
+        agent.aggressive_analyse_rep = aggressive_analyse_rep
+        agent.always_restore = always_restore
+        
+    print(version_header)
+    print(author_header)
+    print(
+        f"Using agents {submission.AGENTS}, if this is incorrect please update the code to load in your agent"
+    )
 
     if write_to_file:
         if not log_path.endswith("/"):
@@ -300,7 +307,7 @@ def run_evaluation(submission,
         print(f"Results will be saved to {log_path}")
 
     start = datetime.now()
-    savetime =str(start.year)+str(start.month)+str(start.day)+"_"+str(start.hour)+str(start.minute)
+    savetime =str(start.year)+str(start.month)+str(start.day)+"_"+str(start.hour)+str(start.minute)+str(start.second)
 
     total_reward = []
     actions_log = []
@@ -462,6 +469,10 @@ def run_evaluation(submission,
                             "priority levels": list(submission.AGENTS.values())[0].priority_weights,
                             "Control HQ Traffic": list(submission.AGENTS.values())[0].enable_hq_blocking,
                             "Mask Enabled": mask_enable,
+                            "Seed": seed,
+                            "Aggressive Analyse": list(submission.AGENTS.values())[0].aggressive_analyse,
+                            "Aggressive Analyse Repetitions": list(submission.AGENTS.values())[0].aggressive_analyse_rep,
+                            "Always Restore": list(submission.AGENTS.values())[0].always_restore,
                             "All Rewards": total_reward
                             }
                             ])
@@ -522,6 +533,15 @@ if __name__ == "__main__":
     parser.add_argument(
         '--enable_prio', type=str2bool, default=True, help="Enable priority for analysing"
     )
+    parser.add_argument(
+        '--always_restore', type=str2bool, default=False, help="Enable always restoring a host instead of removing files"
+    )
+    parser.add_argument(
+        '--aggressive_analyse', type=str2bool, default=False, help="Enable aggressive analysis of suspicious hosts"
+    )
+    parser.add_argument(
+        '--aggressive_analyse_rep', type=int, nargs='+', default=[3,2], help="Repetitions of analysis of suspicious hosts (Prio1, Prio2)"
+    )
 
     parser.add_argument("--max-eps", type=int, default=100, help="Max episodes to run")
     
@@ -552,6 +572,8 @@ if __name__ == "__main__":
         enable_blocking=args.enable_blocking,
         priority_weights=args.prio_weights,
         enable_hq_blocking=args.enable_hq_blocking,
-        enable_priority=args.enable_prio
-
+        enable_priority=args.enable_prio,
+        always_restore=args.always_restore,
+        aggressive_analyse=args.aggressive_analyse,
+        aggressive_analyse_rep=args.aggressive_analyse_rep
     )

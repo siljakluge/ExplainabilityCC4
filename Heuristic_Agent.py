@@ -62,14 +62,22 @@ Goal:
 """
 """
 To do heute:
- - evtl. blocking in hq agent implementieren
-"""
-VERSION = "0.5"
-ENABLE_BLOCKING = False
-ENABLE_HQ_BLOCKING = True
-ENABLE_PRIORITY = True
-WEIGHTS_PRIORITY = [1.5,2,1] # priority 1,2,3
+ - implement contractor network to blocking strategie if necessary
+ - test if the agent should always try to analyse a host he has just removed a file from in case the red agent has already gained root access
+    - a host is suspected to be compromissed if.
+        - a file has been removed from it
+        - any event has occured
+    - repetition of analysation based on weights
+ """
 
+VERSION = "0.6"
+ENABLE_BLOCKING = True
+ENABLE_HQ_BLOCKING = False
+ENABLE_PRIORITY = True
+WEIGHTS_PRIORITY = [3,2,1] # priority 1,2,3[server_0, other servers, rest (users, router)] in Analyse["Priority 3"]
+ALWAYS_RESTORE = False # if True, the agent will always restore a host instead of removing files
+AGGRESSIVE_ANALYSE = False # if True, the agent will analyse hosts more often if they are suspected to be compromissed which is also when a file has been removed
+AGGRESSIVE_ANALYSE_REP = [3,2] # amount of repetitive analysations for suspected hosts ([Prio1, Prio2])
 
 class H_Agent():
 
@@ -79,6 +87,10 @@ class H_Agent():
         self.enable_blocking = ENABLE_BLOCKING
         self.enable_priority = ENABLE_PRIORITY
         self.priority_weights = WEIGHTS_PRIORITY
+        self.enable_hq_blocking = ENABLE_HQ_BLOCKING
+        self.always_restore = ALWAYS_RESTORE
+        self.aggressive_analyse = AGGRESSIVE_ANALYSE
+        self.aggressive_analyse_rep = AGGRESSIVE_ANALYSE_REP
         self._reset_agents()
 
     def _get_responsible_hosts(self, obs):
@@ -95,6 +107,7 @@ class H_Agent():
                              'Priority 2': [], # normal event
                              'Priority 3': []} # default action
         self.info = []
+        self.analyse_counter = {}
         self.restore_host = [] # Hosts which have to be restored
         self.decoy_host = [] # Hosts which have to be decoyed
         self.remove_host = [] # Hosts which have a file to remove
@@ -275,9 +288,14 @@ class H_Agent():
         elif len(self.restore_host) > 0:
             action = Restore(session=0, agent=self.agent_name, hostname=self.restore_host[0])
             self.restore_host =  self.restore_host[1:]
-        # 7.3 remove a server and remove the host from the list afterwards
+        # 7.3 remove a server and remove the host from the list afterwards (if always_restore Restore instead)
         elif len(self.remove_host) > 0:
-            action = Remove(session=0, agent=self.agent_name, hostname=self.remove_host[0])
+            if self.always_restore:
+                action = Restore(session=0, agent=self.agent_name, hostname=self.remove_host[0])
+            else:
+                action = Remove(session=0, agent=self.agent_name, hostname=self.remove_host[0])
+            if self.aggressive_analyse and not self.always_restore:
+                self.analyse_host['Priority 1'].append(self.remove_host[0])
             self.remove_host = self.remove_host[1:]
         # Block or umblock a compromised host
         # Block if message indicates a compromissed host and host is not already blocked
@@ -299,16 +317,39 @@ class H_Agent():
         elif len(self.analyse_host['Priority 1']) > 0:
             action = Analyse(session=0, agent=self.agent_name, hostname=self.analyse_host['Priority 1'][0])
             self.last_analysed = self.analyse_host['Priority 1'][0]
-            self.analyse_host['Priority 3'].remove(self.analyse_host['Priority 1'][0])
-            self.analyse_host['Priority 3'].append(self.analyse_host['Priority 1'][0])
-            self.analyse_host['Priority 1'] = self.analyse_host['Priority 1'][1:]
+            # if aggressive analyse is enabled, count the number of repetitions for this host
+            if self.aggressive_analyse and self.aggressive_analyse_rep[0]>1:
+                if self.analyse_host['Priority 1'][0] in list(self.analyse_counter.keys()):
+                    self.analyse_counter[self.analyse_host['Priority 1'][0]] += 1
+                    # remove from priority 1 if repetition limit has been reached
+                    if self.analyse_counter[self.analyse_host['Priority 1'][0]] >= self.aggressive_analyse_rep[0]:
+                        self.analyse_host['Priority 3'].remove(self.analyse_host['Priority 1'][0])
+                        self.analyse_host['Priority 3'].append(self.analyse_host['Priority 1'][0])
+                        self.analyse_host['Priority 1'] = self.analyse_host['Priority 1'][1:]
+                else:
+                    self.analyse_counter[self.analyse_host['Priority 1'][0]] = 1
+            else:
+                self.analyse_host['Priority 3'].remove(self.analyse_host['Priority 1'][0])
+                self.analyse_host['Priority 3'].append(self.analyse_host['Priority 1'][0])
+                self.analyse_host['Priority 1'] = self.analyse_host['Priority 1'][1:]
         # 7.6 Analyse a priority 2 host and set the host to the end of priority 3
         elif len(self.analyse_host['Priority 2']) > 0:
             action = Analyse(session=0, agent=self.agent_name, hostname=self.analyse_host['Priority 2'][0])
             self.last_analysed = self.analyse_host['Priority 2'][0]
-            self.analyse_host['Priority 3'].remove(self.analyse_host['Priority 2'][0])
-            self.analyse_host['Priority 3'].append(self.analyse_host['Priority 2'][0])
-            self.analyse_host['Priority 2'] = self.analyse_host['Priority 2'][1:]
+            if self.aggressive_analyse and self.aggressive_analyse_rep[1]>1:
+                if self.analyse_host['Priority 2'][0] in list(self.analyse_counter.keys()):
+                    self.analyse_counter[self.analyse_host['Priority 2'][0]] += 1
+                    # remove from priority 2 if repetition limit has been reached
+                    if self.analyse_counter[self.analyse_host['Priority 2'][0]] >= self.aggressive_analyse_rep[1]:
+                        self.analyse_host['Priority 3'].remove(self.analyse_host['Priority 2'][0])
+                        self.analyse_host['Priority 3'].append(self.analyse_host['Priority 2'][0])
+                        self.analyse_host['Priority 2'] = self.analyse_host['Priority 2'][1:]
+                else:
+                    self.analyse_counter[self.analyse_host['Priority 2'][0]] = 1
+            else:
+                self.analyse_host['Priority 3'].remove(self.analyse_host['Priority 2'][0])
+                self.analyse_host['Priority 3'].append(self.analyse_host['Priority 2'][0])
+                self.analyse_host['Priority 2'] = self.analyse_host['Priority 2'][1:]
         # 7.7 Deploy a decoy on the last analysed server which does not hat a decoy or on a random host
         elif len(self.decoy_host) > 0:
             if self.last_analysed in self.decoy_host:

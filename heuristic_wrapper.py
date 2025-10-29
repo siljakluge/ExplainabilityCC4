@@ -78,7 +78,7 @@ class HeuristicWrapper(BlueFixedActionWrapper):
         """
         Combine message with block / allow trafic.
         Bit 0: serverHost0 has been accessed by red agent with root access ans is in the progress of being restored
-        Bit 1:
+        Bit 1: Idea: contractor network has benn compromissed and should be blocked but: does this clean itself?
         Bit 2:
         Bit 3:
         Bit 4:
