@@ -8,8 +8,6 @@ from CybORG.Shared.Enums import TernaryEnum
 
 from copy import deepcopy
 
-
-
 """
 Generall stategie:
 1. Analyse Observation
@@ -63,34 +61,65 @@ Goal:
 """
 To do heute:
  - implement contractor network to blocking strategie if necessary
- - test if the agent should always try to analyse a host he has just removed a file from in case the red agent has already gained root access
-    - a host is suspected to be compromissed if.
-        - a file has been removed from it
-        - any event has occured
-    - repetition of analysation based on weights
+ - implement automated blocking of unwanted hosts if mission phase requires it
+    - check if the connections based on mission phases are automaticlly blocked for all agents
+ - Possible changes to be analysed and maybe implemented:
+    - best solution proposses to use restore reactivly for a connection event.
+    - process and file based are dealt with restore or remove
  """
 
-VERSION = "1.0"
-ENABLE_BLOCKING = True
-ENABLE_HQ_BLOCKING = False
+VERSION = "1.1"
+ENABLE_MESSAGES = True
 ENABLE_PRIORITY = True
 WEIGHTS_PRIORITY = [3,2,1] # priority 1,2,3[server_0, other servers, rest (users, router)] in Analyse["Priority 3"]
 ALWAYS_RESTORE = False # if True, the agent will always restore a host instead of removing files
 AGGRESSIVE_ANALYSE = False # if True, the agent will analyse hosts more often if they are suspected to be compromissed which is also when a file has been removed
 AGGRESSIVE_ANALYSE_REP = [3,2] # amount of repetitive analysations for suspected hosts ([Prio1, Prio2])
+ENFORCE_CONNECTIONS = True
+CONNECTIONS = ["public_access_zone_subnet",
+                "contractor_network_subnet",
+                "restricted_zone_a_subnet",
+                "operational_zone_a_subnet",
+                "restricted_zone_b_subnet",
+                "operational_zone_b_subnet",
+                "internet_subnet"]
+CONNECTION_TABLE = [ # HQ, Contracter, Restricted A, Operational A, Restricted B, Operational B, Internet
+                            [# Mission Phase 0
+                                [1,1,1,1,1,0,1],# blue_agent_0
+                                [0,0,1,1,0,0,0],# blue_agent_1
+                                [1,1,1,0,1,1,1],# blue_agent_2
+                                [0,0,0,0,1,1,0],# blue_agent_3
+                                [1,1,1,0,1,0,1] # blue_agent_4
+                            ],
+                            [# Mission Phase 1
+                                [1,0,1,0,0,0,0],# blue_agent_0
+                                [0,0,0,1,0,0,1],# blue_agent_1
+                                [1,1,0,0,1,1,1],# blue_agent_2
+                                [0,0,0,0,1,1,0],# blue_agent_3
+                                [1,1,1,0,1,0,1] # blue_agent_4
+                            ],
+                            [# Mission Phase 2
+                                [1,1,1,1,0,0,1],# blue_agent_0
+                                [0,0,1,1,0,0,0],# blue_agent_1
+                                [1,0,0,0,1,0,0],# blue_agent_2
+                                [0,0,0,0,0,1,0],# blue_agent_3
+                                [1,1,1,0,1,0,1] # blue_agent_4
+                            ]
+                           ]
+                        
 
 class H_Agent():
 
     def __init__(self, agent_name, init_obs = None):
         self.agent_name = agent_name
         self.version = VERSION
-        self.enable_blocking = ENABLE_BLOCKING
+        self.enable_messages = ENABLE_MESSAGES
         self.enable_priority = ENABLE_PRIORITY
         self.priority_weights = WEIGHTS_PRIORITY
-        self.enable_hq_blocking = ENABLE_HQ_BLOCKING
         self.always_restore = ALWAYS_RESTORE
         self.aggressive_analyse = AGGRESSIVE_ANALYSE
         self.aggressive_analyse_rep = AGGRESSIVE_ANALYSE_REP
+        self.enforce_connections = ENFORCE_CONNECTIONS
         self._reset_agents()
 
     def _get_responsible_hosts(self, obs):
@@ -114,6 +143,7 @@ class H_Agent():
         self.last_analysed = None #Last analysed host
         self.action_counter = np.array([0,0,0,0,0,0,0]) # Monitor, Analyse, DeployDecoy, Remove, Restore, Block Traffic, Allow Traffic
         self.last_message = None
+        self.last_mission_phase = None
     
     def _unique_list(self, list):
         unique_list = []
@@ -133,7 +163,7 @@ class H_Agent():
         
     def _chosen_host_to_analyse(self):
         # Priority: server_0 > other servers > users
-        if not ENABLE_PRIORITY:
+        if not self.enable_priority:
             return self.analyse_host['Priority 3'][0]
         servers = []
         servers_0 = []
@@ -178,16 +208,18 @@ class H_Agent():
                     self.block_host.append(origin_table[self.agent_name][i])
             #remove host from list to be blocked if message indicates that host is secure again
             elif message[0]==0:  
-                if origin_table[self.agent_name][i] in self.block_host:
+                if origin_table[self.agent_name][i] in self.block_host and origin_table[self.agent_name][i] not in self.mission_block_host:
                     self.block_host.remove(origin_table[self.agent_name][i])
 
-        # special case for blue_agent_4 because he has to observe multiple subnets which
-        if self.agent_name == "blue_agent_4" and ENABLE_HQ_BLOCKING:
-            """
-            Currenty no action because the agent should focus on restoring the host instead of blocking.
-            """
-            pass
-        return 
+    
+    def _adjust_to_mission_phase(self,mission):
+        self.block_host = []
+        self.mission_block_host = []
+        #does this affect blocks triggered by messages ?
+        for idx, val in enumerate(CONNECTION_TABLE[mission][int(self.agent_name[-1])]):
+            if not val and CONNECTIONS[idx] and CONNECTIONS[idx] != self.subnet:
+                self.block_host.append(CONNECTIONS[idx])
+                self.mission_block_host.append(CONNECTIONS[idx])
 
     def get_action(self, obs, action_space):
         # Reset the agent if a new episode starts (necessary für submission, because the queues are not reset automatically)
@@ -202,14 +234,20 @@ class H_Agent():
             self.decoy_host = self._get_responsible_hosts(obs)
             self.last_analysed = self.hosts[0]
             self.last_message = [np.array([False]*8), np.array([False]*8), np.array([False]*8), np.array([False]*8)]
+            self.last_mission_phase = 0
+            if self.enforce_connections:
+                self._adjust_to_mission_phase(0)
 
+        # adjust mission phase
+        if 'mission_phase' in obs.keys() and self.enforce_connections:
+            if obs['mission_phase'] != self.last_mission_phase:
+                self._adjust_to_mission_phase(obs['mission_phase'])
         # Store observation
         self.observations.append(obs)
-
         # Check if any event has been detected
         events = [item for item in self.hosts if item in list(obs.keys()) and len(self.observations) > 1]
-        # interpret message
-        if "message" in obs.keys() and ENABLE_BLOCKING:
+        # interpret message, if called this must be called after mission phase adjustment
+        if "message" in obs.keys() and self.enable_messages:
             self._interpret_message(obs["message"])
         # Remove events that only occure because of last action
 
@@ -270,15 +308,6 @@ class H_Agent():
         # 6.3 Remove the events from Priority 2 which are in Priority 1
         self.analyse_host['Priority 2'] = [item for item in self.analyse_host['Priority 2'] if item not in self.analyse_host['Priority 1']]
 
-        """Find next Action based on Priority:
-        1. Restore server
-        2. Remove file
-        3. Analyse a Prioriy 1 or 2 host
-            3.1 once a priority 1 or 2 element has been analysed it is set to the bottom of priority 3 
-        4. set decoy on a detected event with no decoy or last analysed event
-        5. analyse priority 3 host
-        """
-
         # 7. Select action
         # 7.1 first action is always Monitor
         if len(self.actions) == 0 or obs['success'] == TernaryEnum.IN_PROGRESS:
@@ -300,19 +329,18 @@ class H_Agent():
         # Block or umblock a compromised host
         # Block if message indicates a compromissed host and host is not already blocked
         # unblock if message indicates a safe host and host is still blocked
-        elif len(self.block_host) != len(self.blocked_hosts) and ENABLE_BLOCKING:
+        elif sorted(self.block_host) != sorted(self.blocked_hosts):
             # a new host has to be blocked
-            if len(self.block_host) > len(self.blocked_hosts): 
-                host_to_block = [i for i in self.block_host if i not in self.blocked_hosts][0] # a host that is not blocked has to be blocked
-                action = BlockTrafficZone(session=0, agent=self.agent_name, from_subnet=host_to_block, to_subnet=self.subnet)
-                self.blocked_hosts.append(host_to_block)
-                if ENABLE_HQ_BLOCKING and self.agent_name == "blue_agent_4":
-                    #currently prefer to restore host as long as public access is not compromised
-                    pass
-            else:
-                host_to_unblock = [i for i in self.blocked_hosts if i not in self.block_host][0]
+            to_block = [i for i in self.block_host if i not in self.blocked_hosts]
+            to_unblock = [i for i in self.blocked_hosts if i not in self.block_host]
+            if len(to_unblock) > 0:
+                host_to_unblock = to_unblock[0]
                 action = AllowTrafficZone(session=0, agent=self.agent_name, from_subnet=host_to_unblock, to_subnet=self.subnet)
                 self.blocked_hosts.remove(host_to_unblock)
+            else:
+                host_to_block = to_block[0]
+                action = BlockTrafficZone(session=0, agent=self.agent_name, from_subnet=host_to_block, to_subnet=self.subnet)
+                self.blocked_hosts.append(host_to_block)
         # 7.5 Analyse a priority 1 host and set the host to the end of priority 3
         elif len(self.analyse_host['Priority 1']) > 0:
             action = Analyse(session=0, agent=self.agent_name, hostname=self.analyse_host['Priority 1'][0])
