@@ -189,7 +189,7 @@ def run_explainability(
                 if agent_name in wrapped_cyborg.agents
             }
 
-            observations, rewards_scalar, term, trunc, info = wrapped_cyborg.step(actions)
+            observations, rewards_scalar, term, trunc, info, reward_list = wrapped_cyborg.step(actions)
             for agent_name, agent in submission.AGENTS.items():
                 if not hasattr(agent, "info") or len(agent.info) == 0:
                     continue

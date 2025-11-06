@@ -118,7 +118,7 @@ class BlueRewardMachine(RewardCalculator):
                 elif 'red' in agent_name and success and isinstance(action, Impact):
                     reward_list.append(rewards_for_zone["RIA"])
 
-        return sum(reward_list)
+        return (sum(reward_list), reward_list)
 
 
   

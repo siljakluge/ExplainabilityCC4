@@ -168,11 +168,12 @@ class BlueFixedActionWrapper(BaseWrapper):
 
         observations = {agent: o for agent, o in obs.items() if "blue" in agent}
 
-        rewards = {
-            agent: sum(reward.values())
-            for agent, reward in rews.items()
-            if "blue" in agent
-        }
+        rewards = {}
+        reward_list = {}
+        for agent, reward in rews.items():
+            if "blue" in agent:
+                rewards[agent] = sum(v[0] if isinstance(v, tuple) else v for v in reward.values())
+                reward_list[agent] = reward["BlueRewardMachine"][1]
 
         terminated = {agent: done for agent, done in dones.items() if "blue" in agent}
         truncated = {agent: done for agent, done in dones.items() if "blue" in agent}
@@ -182,7 +183,7 @@ class BlueFixedActionWrapper(BaseWrapper):
             for a in self.possible_agents
         }
 
-        return observations, rewards, terminated, truncated, info
+        return observations, rewards, terminated, truncated, info, reward_list
 
     def _create_hardcoded_metadata(self, agent_name: str) -> None:
         """Identifies all hosts and subnets that the agent will ever encounter.

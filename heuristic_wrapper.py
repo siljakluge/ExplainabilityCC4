@@ -71,8 +71,8 @@ class HeuristicWrapper(BlueFixedActionWrapper):
     def step(self, action):
         self._update_messages(action)
         self.mission = self.env.environment_controller.state.mission_phase
-        obs, reward, done, trunc, info = super().step(action, self.messages)
-        return self._mask_obs(obs), reward, done, trunc, info
+        obs, reward, done, trunc, info, rewar_list = super().step(action, self.messages)
+        return self._mask_obs(obs), reward, done, trunc, info, rewar_list
     
     def _update_messages(self, actions):
         """
