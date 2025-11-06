@@ -1,6 +1,6 @@
 import numpy as np
-from collections import Counter
-
+from collections import Counter, OrderedDict
+from typing import Dict, Any, List
 from CybORG.Simulator.Actions import Monitor , Analyse, DeployDecoy, Remove, Restore
 from CybORG.Simulator.Actions.ConcreteActions.ControlTraffic import AllowTrafficZone, BlockTrafficZone 
 from CybORG.Shared.Enums import TernaryEnum
@@ -106,6 +106,7 @@ class H_Agent():
                 events = [event for event in events if event not in str(obs["action"])] # maybe has to be more specific
         if len(events) > 0:
 
+
         # 1. Check for malware
             for host in events:
                 if 'Files' in obs[host]:
@@ -165,6 +166,7 @@ class H_Agent():
         4. set decoy on a detected event with no decoy or last analysed event
         5. analyse priority 3 host
         """
+        predicates = self._compute_predicates(obs)
 
         # 7. Select action
         # 7.1 first action is always Monitor
@@ -227,11 +229,16 @@ class H_Agent():
         elif isinstance(action, Restore):
             self.action_counter[4] += 1
 
-        # 9. Add step information
-        self.info.append({"Name": self.agent_name,
-                "Status": self.status,
-                "Observation": obs,
-                "Action": action})
+        # 9. Add step information (extend with predicates and chosen action class)
+        action_cls = type(action).__name__
+        self.info.append({
+            "Name": self.agent_name,
+            "Status": self.status,
+            "Observation": obs,  # raw obs (optional, big)
+            "Predicates": predicates,  # <<—— new, compact features
+            "Action": action,
+            "ActionClass": action_cls  # coarse label for SHAP target
+        })
         return action
         
         
@@ -248,4 +255,91 @@ class H_Agent():
         Bit 7:
         """
         return np.array([False]*8)
+
+    def _compute_predicates(self, obs):
+        """Booleans and small counts the heuristic actually reasons about."""
+
+        feats = {}
+        # basic status
+        feats["is_first_step"] = float(len(self.observations) == 0)
+        feats["action_in_progress"] = float(obs.get('success') == TernaryEnum.IN_PROGRESS)
+        feats["action_success_unknown"] = float(obs.get('success') == TernaryEnum.UNKNOWN)
+        feats["action_successful"] = float(obs.get('success') == True)
+        feats["action_not_successful"] = float(obs.get('success') == False)
+
+
+        # helpers
+        def _iter_files(hobs):
+            for f in hobs.get('Files', []) or []:
+                if isinstance(f, dict):
+                    yield f
+
+        def _iter_processes(hobs):
+            for p in hobs.get('Processes', []) or []:
+                if isinstance(p, dict):
+                    yield p
+
+        def _iter_connections(proc):
+            # Connections can be a dict or a list of dicts (or absent)
+            conns = proc.get('Connections', None)
+            if conns is None:
+                return
+            if isinstance(conns, dict):
+                yield conns
+            elif isinstance(conns, list):
+                for c in conns:
+                    if isinstance(c, dict):
+                        yield c
+            # else: ignore unexpected shapes
+
+        hosts_now = [h for h in self.hosts if h in obs]
+
+        # malware / decoy-exploit flags
+        has_cmd, has_escalate, has_decoy_exploit = 0.0, 0.0, 0.0
+        for host in hosts_now:
+            hobs = obs.get(host, {}) or {}
+            for f in _iter_files(hobs):
+                name = f.get("File Name") or f.get("Name") or f.get("filename")
+                if name == "cmd.sh":
+                    has_cmd = 1.0
+                elif name == "escalate.sh":
+                    has_escalate = 1.0
+            for p in _iter_processes(hobs):
+                for c in _iter_connections(p):
+                    # local_port can live under different casings; check a few common ones
+                    lp = c.get('local_port', c.get('Local Port', c.get('localPort')))
+                    try:
+                        if lp is not None and int(lp) == 25:
+                            has_decoy_exploit = 1.0
+                    except (TypeError, ValueError):
+                        pass
+        feats["has_cmd_sh"] = has_cmd
+        feats["has_escalate_sh"] = has_escalate
+        feats["has_decoy_exploit"] = has_decoy_exploit
+
+        # queue state (before this step’s action is chosen)
+        feats["length_restore_que"] = float(len(self.restore_host))
+        feats["length_remove_que"] = float(len(self.remove_host))
+        feats["length_analyse_prio1_que"] = float(len(self.analyse_host['Priority 1']))
+        feats["length_analyse_prio2_que"] = float(len(self.analyse_host['Priority 2']))
+        feats["length_analyse_prio3_que"] = float(len(self.analyse_host['Priority 3']))
+        feats["length_decoy_que"] = float(len(self.decoy_host))
+
+        # last analysed exists?
+        feats["has_last_analysed"] = float(self.last_analysed is not None)
+
+        # last action type
+        last = self.actions[-1] if self.actions else None
+        feats["prev_monitor"] = float(isinstance(last, Monitor)) if last else 0.0
+        feats["prev_restore"] = float(isinstance(last, Restore)) if last else 0.0
+        feats["prev_remove"] = float(isinstance(last, Remove)) if last else 0.0
+        feats["prev_analyse"] = float(isinstance(last, Analyse)) if last else 0.0
+        feats["prev_decoy"] = float(isinstance(last, DeployDecoy)) if last else 0.0
+
+        return feats
+
+
+
+
+
     

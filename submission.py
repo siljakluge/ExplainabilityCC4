@@ -22,12 +22,12 @@ from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
 
 ### Import custom agents here ###
-from Heuristic_Agent import H_Agent
+from Heuristic_Agent_v0_3 import H_Agent
 
 class Submission:
 
     # Submission name
-    NAME: str = "JustDoIt"
+    NAME: str = "v03"
 
     # Name of your team
     TEAM: str = "SIX"
