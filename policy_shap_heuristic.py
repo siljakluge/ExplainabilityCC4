@@ -8,6 +8,7 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, classification_report
 import shap
 import matplotlib.pyplot as plt
+import csv
 
 def _matrix(rows: List[Dict[str, float]]):
     keys = sorted({k for r in rows for k in r.keys()})
@@ -47,7 +48,7 @@ def train_surrogate_and_shap(policy_rows: List[Tuple[Dict[str, float], str]], ou
             "report": rep
         }, f, indent=2)
 
-    # --- SHAP with model-agnostic Explainer on predict_proba ---
+    # --- SHAP with model-agnostic Explainer on predict_proba (ALL CLASSES) ---
     rng = np.random.default_rng(42)
     if len(Xtr) > 0:
         bg_idx = rng.choice(len(Xtr), size=min(200, len(Xtr)), replace=False)

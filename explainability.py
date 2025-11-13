@@ -6,6 +6,10 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Any, Tuple, Optional
 from statistics import mean, stdev
 from datetime import datetime
+from pathlib import Path
+
+from plot_rew_decomp import (parse_log, plot_episode_detail, plot_components_by_subnet, plot_total, plot_phase_stacked,
+                             plot_components_per_step, plot_action_cost_by_agent)
 
 import numpy as np
 from tqdm import tqdm
@@ -112,7 +116,7 @@ def _plot_per_step_lines(step_components: List[Dict[str, float]], out_path: str,
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close()
 
-def _plot_episode_totals_bars(ep_totals: Dict[str, float], out_path: str, title: str):
+"""def _plot_episode_totals_bars(ep_totals: Dict[str, float], out_path: str, title: str):
     items = [(k, v) for k, v in ep_totals.items() if k != "__total__"]
     if not items:
         return
@@ -126,9 +130,9 @@ def _plot_episode_totals_bars(ep_totals: Dict[str, float], out_path: str, title:
     plt.grid(True, axis="y")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
-    plt.close()
+    plt.close()"""
 
-# -------- Runner (similar to your run_evaluation, but decomposed) --------
+# -------- Runner  --------
 
 def run_explainability(
     submission,
@@ -164,11 +168,6 @@ def run_explainability(
     print(author_header)
     print(f"Using agents {submission.AGENTS}")
 
-    # Output folder
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_dir = os.path.join(output_dir, f"decomposition_{ts}")
-    rmkdir(run_dir)
-
     total_rewards_per_episode: List[float] = []
     decomp_episodes: List[DecompEpisode] = []
     policy_rows = []
@@ -180,6 +179,16 @@ def run_explainability(
         per_step_scalars: List[float] = []
 
         for t in range(episode_length):
+            try:
+                log_path = Path("reward_log.jsonl")
+                log_entry = {
+                    "episode": epi,
+                    "step": t,
+                }
+                with open(log_path, "a") as f:
+                    f.write(json.dumps(log_entry, default=str) + "\n")
+            except Exception as e:
+                print(f"Failed to write log for episode {epi}: {e}")
             # 1) get actions from blue agents as in your eval code
             actions = {
                 agent_name: agent.get_action(
@@ -189,7 +198,7 @@ def run_explainability(
                 if agent_name in wrapped_cyborg.agents
             }
 
-            observations, rewards_scalar, term, trunc, info, reward_list = wrapped_cyborg.step(actions)
+            observations, rewards_scalar, term, trunc, info = wrapped_cyborg.step(actions)
             for agent_name, agent in submission.AGENTS.items():
                 if not hasattr(agent, "info") or len(agent.info) == 0:
                     continue
@@ -226,14 +235,14 @@ def run_explainability(
         if plot:
             _plot_per_step_lines(
                 epi_decomp.step_components,
-                os.path.join(run_dir, f"episode_{epi+1:03d}_components_per_step.png"),
+                os.path.join(output_dir, f"episode_{epi+1:03d}_components_per_step.png"),
                 title=f"Per-step Reward Components (Episode {epi+1})",
             )
-            _plot_episode_totals_bars(
+            """_plot_episode_totals_bars(
                 epi_decomp.totals(),
                 os.path.join(run_dir, f"episode_{epi+1:03d}_components_totals.png"),
                 title=f"Episode {epi+1} Component Totals",
-            )
+            )"""
 
     # --- Summaries and files ---
     reward_mean = mean(total_rewards_per_episode) if total_rewards_per_episode else 0.0
@@ -249,14 +258,14 @@ def run_explainability(
         ep_totals_rows.append(row)
         all_keys.update(totals.keys())
 
-    save_json(ep_totals_rows, os.path.join(run_dir, "decomp_episode_totals.json"))
-    save_csv(ep_totals_rows, os.path.join(run_dir, "decomp_episode_totals.csv"))
+    save_json(ep_totals_rows, os.path.join(output_dir, "decomp_episode_totals.json"))
+    save_csv(ep_totals_rows, os.path.join(output_dir, "decomp_episode_totals.csv"))
 
     # b) Per-step decomposition for the first episode (so you can inspect the time series easily)
     if decomp_episodes:
         save_json(
             decomp_episodes[0].step_components,
-            os.path.join(run_dir, "decomp_steps_ep1.json"),
+            os.path.join(output_dir, "decomp_steps_ep1.json"),
         )
 
     # c) Scalar totals you already track, for convenience
@@ -278,15 +287,15 @@ def run_explainability(
                 "per_episode": total_rewards_per_episode,
             },
         },
-        os.path.join(run_dir, "summary_scalar.json"),
+        os.path.join(output_dir, "summary_scalar.json"),
     )
 
-    print(f"Saved decomposition run to: {run_dir}")
+    print(f"Saved decomposition run to: {output_dir}")
 
     from policy_shap_heuristic import train_surrogate_and_shap
     summary = train_surrogate_and_shap(
         policy_rows,
-        out_dir=os.path.join(run_dir, "policy_shap_heuristic")
+        out_dir=os.path.join(output_dir, "policy_shap_heuristic")
     )
     print(summary)
 
@@ -305,15 +314,38 @@ if __name__ == "__main__":
     parser.add_argument("--no-plot", action="store_true", help="Disable PNG plots")
     args = parser.parse_args()
 
+    log_path = Path("reward_log.jsonl")
+    log_path.write_text("")
+
     os.makedirs(args.output, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    run_dir = os.path.join(args.output, f"decomposition_{ts}")
+    rmkdir(run_dir)
     Submission = load_submission(args.submission_path)
     submission = Submission
 
     run_explainability(
         submission=submission,
-        output_dir=args.output,
+        output_dir=run_dir,
         max_eps=args.max_eps,
         seed=args.seed,
         episode_length=args.episode_length,
         plot=not args.no_plot,
     )
+    out_dir = os.path.join(run_dir, "DecompPlots")
+    os.makedirs(out_dir, exist_ok=True)
+    out_dir_phases = os.path.join(out_dir, "PhasePlots")
+    os.makedirs(out_dir_phases, exist_ok=True)
+    out_dir_episodes = os.path.join(out_dir, "EpisodePlots")
+    os.makedirs(out_dir_episodes, exist_ok=True)
+
+    if log_path.exists():
+        df_rewards, df_total, df_acost = parse_log(log_path)
+        plot_total(df_total, out_dir=Path(out_dir))
+        plot_components_by_subnet(df_rewards, out_dir=Path(out_dir))
+        plot_components_per_step(df_rewards, df_total, out_dir=Path(out_dir))
+        plot_action_cost_by_agent(df_acost, out_dir=Path(out_dir))
+        for phase in range(0, 3):
+            plot_phase_stacked(df_rewards, df_total, phase=int(phase), out_dir=Path(out_dir_phases))
+        for ep in range(args.max_eps):
+            plot_episode_detail(df_rewards, df_acost, episode = ep, out_dir=Path(out_dir_episodes))

@@ -1,7 +1,10 @@
 # Copyright DST Group. Licensed under the MIT license.
+from email.policy import default
+
 import gym
 from gym.utils.seeding import RandomNumberGenerator
-
+import json
+from pathlib import Path
 from typing import Dict, List, Tuple
 from CybORG.Shared import Scenario
 from CybORG.Shared import Enums
@@ -309,6 +312,18 @@ class SimulationController(CybORGLogger):
                 self.reward[team_name][reward_name] = self.calculate_reward(r_calc)
             action_cost = sum(actions.get(agent, Action()).cost for agent in self.team[team_name])
             self.reward[team_name]['action_cost'] = action_cost
+            for agent in self.team[team_name]:
+                if "blue" in agent:
+                    try:
+                        log_path = Path("reward_log.jsonl")
+                        log_entry = {
+                            "agent": agent,
+                            "action cost": actions.get(agent, Action()).cost,
+                        }
+                        with log_path.open("a") as log_file:
+                            log_file.write(json.dumps(log_entry, default=str) + "\n")
+                    except Exception as e:
+                        print(f"[SimulationController] Warning: could not log action cost for agent {agent}: {e}")
 
         for host in self.state.hosts.values():
             host.update(self.state)

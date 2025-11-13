@@ -4,6 +4,9 @@ from CybORG.Simulator.State import State
 from CybORG.Simulator.Actions.GreenActions import GreenAccessService, GreenLocalWork
 from CybORG.Simulator.Actions.AbstractActions.Impact import Impact
 from CybORG.Simulator.Actions.Action import InvalidAction
+import json
+from pathlib import Path
+from collections import defaultdict
 
 class BlueRewardMachine(RewardCalculator):
     """The reward calculator for CC4
@@ -88,6 +91,10 @@ class BlueRewardMachine(RewardCalculator):
             sum of the rewards collected
         """
         reward_list = []
+        reward_summary = {
+            "total": 0,
+            "subnet_rewards": defaultdict(lambda: {"LWF": 0, "ASF": 0, "RIA": 0})
+        }
         self.phase_rewards = self.get_phase_rewards(state.mission_phase)
 
         for agent_name, action in action_dict.items():
@@ -111,17 +118,36 @@ class BlueRewardMachine(RewardCalculator):
 
                 if 'green' in agent_name and success == False:
                     if isinstance(action, GreenLocalWork):
-                        reward_list.append(rewards_for_zone["LWF"])
+                        r = rewards_for_zone['LWF']
+                        reward_list.append(r)
+                        reward_summary["subnet_rewards"][subnet_name]["LWF"] += r
                     elif isinstance(action, GreenAccessService):
-                        reward_list.append(rewards_for_zone["ASF"])
+                        r = rewards_for_zone['ASF']
+                        reward_list.append(r)
+                        reward_summary["subnet_rewards"][subnet_name]["ASF"] += r
 
                 elif 'red' in agent_name and success and isinstance(action, Impact):
-                    reward_list.append(rewards_for_zone["RIA"])
+                    r = rewards_for_zone['RIA']
+                    reward_list.append(r)
+                    reward_summary["subnet_rewards"][subnet_name]["RIA"] += r
+                else:
+                    r = 0
 
-        return (sum(reward_list), reward_list)
+                reward_summary["total"] += r
+        try:
+            log_path = Path("reward_log.jsonl")
+            log_entry = {
+                "phase": state.mission_phase,
+                "reward_list": reward_summary["subnet_rewards"],
+                "total": reward_summary["total"],
+            }
+            with log_path.open("a") as f:
+                f.write(json.dumps(log_entry, default=str) + "\n")
+        except Exception as e:
+            print(f"[BlueRewardMachine] Warning: could not log the reward to file: {e}")
 
+        return sum(reward_list)
 
-  
         
         
  
