@@ -48,7 +48,7 @@ def train_surrogate_and_shap(policy_rows: List[Tuple[Dict[str, float], str]], ou
             "report": rep
         }, f, indent=2)
 
-    # --- SHAP with model-agnostic Explainer on predict_proba (ALL CLASSES) ---
+    # --- SHAP with model-agnostic Explainer on predict_proba ---
     rng = np.random.default_rng(42)
     if len(Xtr) > 0:
         bg_idx = rng.choice(len(Xtr), size=min(200, len(Xtr)), replace=False)
@@ -59,7 +59,7 @@ def train_surrogate_and_shap(policy_rows: List[Tuple[Dict[str, float], str]], ou
     # callable that returns class probabilities
     explainer = shap.Explainer(clf.predict_proba, bg_X)
 
-    # choose samples to explain (keep runtime bounded)
+    # choose samples to explain
     ex_idx = rng.choice(len(X), size=min(500, len(X)), replace=False)
     X_explain = X[ex_idx]
     y_explain = y[ex_idx]
@@ -67,7 +67,6 @@ def train_surrogate_and_shap(policy_rows: List[Tuple[Dict[str, float], str]], ou
     shap_values = explainer(X_explain)  # PermutationExplainer, multiclass
     # shap_values shape semantics: (n_samples, n_features, n_classes)
 
-    import csv
     def sanitize(name: str) -> str:
         return "".join(c if c.isalnum() or c in "-._@" else "_" for c in name)
 
@@ -103,26 +102,6 @@ def train_surrogate_and_shap(policy_rows: List[Tuple[Dict[str, float], str]], ou
         plt.savefig(os.path.join(class_dir, "shap_beeswarm.png"), dpi=150)
         plt.close()
 
-        # ---- Persist mean|SHAP| per feature for this class (CSV + JSON) ----
-        mean_abs = np.abs(sv_plot.values).mean(axis=0)  # (n_features,)
-        rows = [{"feature": fn, "mean_abs_shap": float(v)} for fn, v in zip(feature_names, mean_abs)]
-        rows_sorted = sorted(rows, key=lambda r: r["mean_abs_shap"], reverse=True)
-
-        with open(os.path.join(class_dir, "mean_abs_shap.json"), "w") as f:
-            json.dump(rows_sorted, f, indent=2)
-
-        with open(os.path.join(class_dir, "mean_abs_shap.csv"), "w", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=["feature", "mean_abs_shap"])
-            w.writeheader()
-            w.writerows(rows_sorted)
-
-    # Also persist overall arrays / metadata for reproducibility
-    np.save(os.path.join(out_dir, "X.npy"), X)
-    np.save(os.path.join(out_dir, "y.npy"), y)
-    with open(os.path.join(out_dir, "feature_names.json"), "w") as f:
-        json.dump(feature_names, f, indent=2)
-    with open(os.path.join(out_dir, "class_names.json"), "w") as f:
-        json.dump(list(le.classes_), f, indent=2)
 
     return {
         "accuracy": float(acc),

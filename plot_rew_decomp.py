@@ -1,5 +1,3 @@
-
-
 #   python plot_reward_decomposition.py --log reward_log.jsonl --out reward_plots --episode 0
 
 import argparse, json
@@ -139,6 +137,173 @@ def plot_total(df_total: pd.DataFrame, out_dir: Path):
     plt.savefig(out, bbox_inches="tight")
     plt.close()
     return out
+
+def plot_components_by_phase(df_rewards: pd.DataFrame,
+                             df_total: pd.DataFrame,
+                             df_acost: pd.DataFrame,
+                             out_dir: Path):
+    """
+    Stacked bar chart of cumulative reward per phase and component,
+    including Action Cost (summed across all agents and steps in that phase).
+    """
+    if df_rewards.empty and df_acost.empty:
+        return None
+
+    # ---- 1. Reward components per phase ----
+    if not df_rewards.empty:
+        pivot_rewards = (
+            df_rewards.groupby(["phase", "component"])["value"]
+            .sum()
+            .reset_index()
+            .pivot_table(
+                index="phase",
+                columns="component",
+                values="value",
+                fill_value=0.0,
+            )
+        )
+    else:
+        pivot_rewards = pd.DataFrame()
+
+    # ---- 2. Action Cost per phase (attach phase via df_total) ----
+    if not df_acost.empty and not df_total.empty:
+        # df_total has (episode, step, phase)
+        df_acost_phase = df_acost.merge(
+            df_total[["episode", "step", "phase"]],
+            on=["episode", "step"],
+            how="left",
+        )
+        # Drop rows where we couldn't find a phase (just in case)
+        df_acost_phase = df_acost_phase.dropna(subset=["phase"])
+
+        if not df_acost_phase.empty:
+            df_acost_phase["phase"] = df_acost_phase["phase"].astype(int)
+            df_acost_phase = (
+                df_acost_phase.groupby("phase")["action_cost"]
+                .sum()
+                .reset_index()
+                .rename(columns={"action_cost": "Action Cost"})
+            )
+            pivot_acost = df_acost_phase.set_index("phase")
+        else:
+            pivot_acost = pd.DataFrame()
+    else:
+        pivot_acost = pd.DataFrame()
+
+    # ---- 3. Merge rewards + action cost ----
+    if not pivot_rewards.empty and not pivot_acost.empty:
+        pivot = pivot_rewards.join(pivot_acost, how="outer").fillna(0.0)
+    elif not pivot_rewards.empty:
+        pivot = pivot_rewards.copy()
+    elif not pivot_acost.empty:
+        pivot = pivot_acost.copy()
+    else:
+        return None
+
+    pivot = pivot.sort_index()
+
+    # ---- 4. Plot ----
+    phases = list(pivot.index)
+    x = np.arange(len(phases))
+
+    width = max(8, len(phases) * 1.2)
+    fig, ax = plt.subplots(figsize=(width, 6))
+
+    bottom = np.zeros(len(phases))
+    cols = list(pivot.columns)
+
+    for comp in cols:
+        vals = pivot[comp].to_numpy()
+        ax.bar(x, vals, bottom=bottom, label=comp)
+        bottom = bottom + vals
+
+    ax.set_title("Cumulative Reward by Phase (Including Action Cost)")
+    ax.set_xlabel("Phase")
+    ax.set_ylabel("Cumulative Reward")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(phases)
+
+    ax.legend(title="Component", bbox_to_anchor=(1.05, 1), loc="upper left")
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / "stacked_components_by_phase.png"
+    fig.tight_layout()
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out
+
+def plot_components_by_subnet_per_phase(df_rewards: pd.DataFrame,
+                                        out_dir: Path):
+    """
+    For each phase, create a stacked bar chart:
+      x-axis: subnet
+      y-axis: cumulative reward
+      bars: stacked by component (summed across all steps/episodes in that phase).
+    Saves one PNG per phase in out_dir.
+    """
+    if df_rewards.empty or "phase" not in df_rewards.columns:
+        return {}
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # collect output paths per phase (optional, for inspection)
+    outputs = {}
+
+    for phase in sorted(df_rewards["phase"].dropna().unique()):
+        df_p = df_rewards[df_rewards["phase"] == phase].copy()
+        if df_p.empty:
+            continue
+
+        pivot = (
+            df_p.groupby(["subnet", "component"])["value"]
+            .sum()
+            .reset_index()
+            .pivot_table(
+                index="subnet",
+                columns="component",
+                values="value",
+                fill_value=0.0,
+            )
+            .sort_index()
+        )
+
+        if pivot.empty:
+            continue
+
+        subnets = list(pivot.index)
+        x = np.arange(len(subnets))
+
+        # make plot wider if many subnets
+        width = max(8, len(subnets) * 1.2)
+        fig, ax = plt.subplots(figsize=(width, 6))
+
+        bottom = np.zeros(len(subnets))
+        cols = list(pivot.columns)
+
+        for comp in cols:
+            vals = pivot[comp].to_numpy()
+            ax.bar(x, vals, bottom=bottom, label=comp)
+            bottom = bottom + vals
+
+        ax.set_title(f"Cumulative Reward by Subnet and Component (Phase {phase})")
+        ax.set_xlabel("Subnet")
+        ax.set_ylabel("Cumulative Reward")
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(subnets, rotation=45, ha="right")
+
+        ax.legend(title="Component", bbox_to_anchor=(1.05, 1), loc="upper left")
+
+        out_path = out_dir / f"stacked_components_by_subnet_phase_{phase}.png"
+        fig.tight_layout()
+        fig.savefig(out_path, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+
+        outputs[phase] = out_path
+
+    return outputs
 
 def plot_phase_stacked(df_rewards: pd.DataFrame,
                        df_total: pd.DataFrame,
@@ -440,34 +605,41 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--log", type=Path, default=Path("reward_log.jsonl"))
     ap.add_argument("--out", type=Path, default=Path("reward_plots"))
-    ap.add_argument("--episode", type=int, default=0, help="Episode number for detailed combined plot")
     args = ap.parse_args()
 
-    args.out.mkdir(parents=True, exist_ok=True)
-
     df_rewards, df_total, df_acost = parse_log(args.log)
+    all_episodes = sorted(df_total["episode"].unique())
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    phase_out_dir = Path(args.out) / "PhasePlots"
+    phase_out_dir.mkdir(parents=True, exist_ok=True)
+    episode_out_dir = Path(args.out) / "EpisodePlots"
+    episode_out_dir.mkdir(parents=True, exist_ok=True)
+
+    for ep in all_episodes:
+        print(f"Plotting episode {ep}…")
+        try:
+            plot_episode_detail(df_rewards, df_acost, episode=ep, out_dir=episode_out_dir)
+        except Exception as e:
+            print(f"   ⚠️ Failed for episode {ep}: {e}")
 
     # General plots
     p1 = plot_total(df_total, args.out)
     p2 = plot_components_per_step(df_rewards, df_total, args.out)
     p3 = plot_components_by_subnet(df_rewards, args.out)
     p4 = plot_action_cost_by_agent(df_acost, args.out)
-    p5 = None
-    if args.episode is not None:
-        p5 = plot_episode_detail(df_rewards, df_acost, args.episode, args.out)
-
-    phase_out_dir = Path(args.out) / "PhasePlots"
-
+    p5 = plot_components_by_phase(df_rewards, df_total, df_acost, out_dir=phase_out_dir)
+    p6 = plot_components_by_subnet_per_phase(df_rewards, out_dir=phase_out_dir)
     for phase in sorted(df_rewards["phase"].dropna().unique()):
         plot_phase_stacked(df_rewards, df_total, phase=int(phase), out_dir=phase_out_dir)
 
     print("Saved figures:")
     print(" - Total per step:", p1)
     print(" - Components per step:", p2)
-    print(" - By subnet:", p3)
+    print(" - Per subnet:", p3)
     print(" - Action Cost by Agent:", p4)
-    if args.episode is not None:
-        print(" - Episode detail:", p5)
+    print(" - Components by Phase:", p5)
+    print(" - Per subnet & phase:", p6)
 
 if __name__ == "__main__":
     main()
