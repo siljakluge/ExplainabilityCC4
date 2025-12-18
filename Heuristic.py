@@ -6,7 +6,7 @@ from CybORG.Agents.Wrappers import BlueFixedActionWrapper
 import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
-from Heuristic_Agent_v0_2 import H_Agent
+from Heuristic_Agent_v0_3 import H_Agent
 from datetime import datetime, time
 import pandas as pd
 import os

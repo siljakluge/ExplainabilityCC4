@@ -1,5 +1,7 @@
-import inspect
+from matplotlib import pyplot as plt
+import numpy as np
 import time
+import json
 from statistics import mean, stdev
 
 from tqdm import tqdm 
@@ -10,20 +12,57 @@ from CybORG.Agents import SleepAgent, EnterpriseGreenAgent, FiniteStateRedAgent
 from CybORG.Simulator.Scenarios import EnterpriseScenarioGenerator
 
 from datetime import datetime
-
-import json
-
 import sys
 import os
-"""
-evaluation.py
 
-"""
+from pprint import pprint
 
+class CustomGreenAgent(EnterpriseGreenAgent):
+    def __init__(self, name, own_ip, np_random=None):
+        super().__init__(name, own_ip, np_random, fp_detection_rate=0.01, phishing_error_rate=0.01)  # Set your value here
 
 
 cyborg_version = CYBORG_VERSION
 EPISODE_LENGTH = 500
+
+
+#Save information dicts
+def save_dict_array_to_json(arr, filename, folder = None):
+    # Convert numpy array of dicts to list of dicts
+    data = [dict(item) for item in arr]
+    if folder == None:
+         folder = filename[:-5] if filename.endswith('.json') else filename
+    folder_path= "Results/"+folder+"/"
+    os.makedirs(folder_path, exist_ok=True)
+    
+    # Ensure filename has .json extension
+    if not filename.endswith('.json'):
+        filename += '.json'
+    
+    # Save as JSON file
+    with open(folder_path + filename, 'w') as f:
+        json.dump(data, f, indent=2, default=str)
+    print(f"Saved {len(arr)} dictionaries to {filename}")
+
+
+#Plot reward per episode
+def plot_array(data: np.ndarray, title: str = "Mein Graph", folder:str = None):
+    plt.plot(range(len(data)), data, marker='o')
+    plt.xlim(0, len(data))
+    plt.ylim(-400,0)
+    plt.title("Total Reward per Episode")
+    plt.xlabel("Episode")
+    plt.ylabel("Total Reward")
+    plt.grid(True)
+    plt.show()
+    if folder != None:
+        folder_path= "Results/"+folder+"/"
+    else:
+         folder_path=""
+    os.makedirs(folder_path, exist_ok=True)
+    plt.savefig(folder_path+title+".png")
+    print(f"Saved Rewards graph")
+
 
 def rmkdir(path: str):
     """Recursive mkdir"""
@@ -47,7 +86,7 @@ def load_submission(source: str):
     if source.endswith(".zip"):
         try:
             # Load submission from zip.
-            from submission.submission import Submission
+            from submission import Submission
         except ImportError as e:
             raise ImportError(
                 """
@@ -210,13 +249,30 @@ def run_evaluation_parallel(submission, log_path, max_eps=100, write_to_file=Fal
             scores.write(f"reward_mean: {reward_mean}\n")
             scores.write(f"reward_stdev: {reward_stdev}\n")
 
-def run_evaluation(submission, log_path, max_eps=100, write_to_file=False, seed=None):
+def run_evaluation(submission, 
+                   log_path, 
+                   max_eps=100, 
+                   write_to_file=False, 
+                   seed=None, 
+                   log_step=False, 
+                   log_agent = 0, 
+                   comment = "",
+                   priority_weights = [3,2,1],
+                   enable_messages = True,
+                   enable_priority = True,
+                   aggressive_analyse = False,
+                   aggressive_analyse_rep = [3,2],
+                   always_restore = False,
+                   name = "",
+                   enforce_connections=True
+                   ):
     cyborg_version = CYBORG_VERSION
     EPISODE_LENGTH = 500
     scenario = "Scenario4"
 
     version_header = f"CybORG v{cyborg_version}, {scenario}"
     author_header = f"Author: {submission.NAME}, Team: {submission.TEAM}, Technique: {submission.TECHNIQUE}"
+
 
     sg = EnterpriseScenarioGenerator(
         blue_agent_class=SleepAgent,
@@ -226,7 +282,17 @@ def run_evaluation(submission, log_path, max_eps=100, write_to_file=False, seed=
     )
     cyborg = CybORG(sg, "sim", seed=seed)
     wrapped_cyborg = submission.wrap(cyborg)
-    
+
+    #agent setup
+    for agent_name, agent in submission.AGENTS.items():
+        agent.priority_weights = priority_weights
+        agent.enable_messages = enable_messages
+        agent.enable_priority = enable_priority
+        agent.aggressive_analyse = aggressive_analyse
+        agent.aggressive_analyse_rep = aggressive_analyse_rep
+        agent.always_restore = always_restore
+        agent.enforce_connections=enforce_connections
+        
     print(version_header)
     print(author_header)
     print(
@@ -239,16 +305,17 @@ def run_evaluation(submission, log_path, max_eps=100, write_to_file=False, seed=
         print(f"Results will be saved to {log_path}")
 
     start = datetime.now()
+    savetime =str(start.year)+str(start.month)+str(start.day)+"_"+str(start.hour)+str(start.minute)+str(start.second)
 
     total_reward = []
     actions_log = []
     obs_log = []
+    info_short, log = np.array([]), np.array([])
     for i in tqdm(range(max_eps)):
         observations, _ = wrapped_cyborg.reset()
         r = []
         a = []
         o = []
-        count = 0
         for j in range(EPISODE_LENGTH):
             actions = {
                 agent_name: agent.get_action(
@@ -257,6 +324,22 @@ def run_evaluation(submission, log_path, max_eps=100, write_to_file=False, seed=
                 for agent_name, agent in submission.AGENTS.items()
                 if agent_name in wrapped_cyborg.agents
             }
+            if log_step:
+                print("\n")
+                print(f"Step {j+1}\n")
+                print(f"Log for Agent: blue_agent_{log_agent}\n")
+                print(f"Observation:\n")
+                pprint(observations[f"blue_agent_{log_agent}"])
+                print("\n")
+                print(f"Action: {actions[f"blue_agent_{log_agent}"]}\n")
+                print("\n")
+                print("Blocked Hosts:\n")
+                print(f"{list(submission.AGENTS.values())[log_agent].blocked_hosts}\n")
+                print("Host to block:\n")
+                print(f"{list(submission.AGENTS.values())[log_agent].block_host}\n")
+                input("Press Enter to continue...")
+
+
             observations, rew, term, trunc, info = wrapped_cyborg.step(actions)
             done = {
                 agent: term.get(agent, False) or trunc.get(agent, False)
@@ -278,11 +361,38 @@ def run_evaluation(submission, log_path, max_eps=100, write_to_file=False, seed=
                         for agent_name in observations.keys()
                     }
                 )
+                all_actions = wrapped_cyborg.env.environment_controller.action
+                red_actions = {agent: act for agent, act in all_actions.items() if "red" in agent}
+                log = np.append(log, {"Episode": i,
+                                "Step": j,
+                                "Observation": observations,
+                                "Actions": actions,
+                                "Red-Actions": red_actions,
+                                "Reward": mean(rew.values()),
+                                }
+                            )
         total_reward.append(sum(r))
-
+        print(f"Episode {i+1} Reward: {total_reward[-1]}")
         if write_to_file:
             actions_log.append(a)
             obs_log.append(o)
+        info_short = np.append(info_short, 
+                        {"Episode" : i,
+                        "Seed": seed,
+                        "Reward": total_reward[i],
+                        "Monitor Action Count": [agent.action_counter[0] for agent in submission.AGENTS.values()],
+                        "Analyse Action Count":  [agent.action_counter[1] for agent in submission.AGENTS.values()],
+                        "DeployDecoy Action Count": [agent.action_counter[2] for agent in submission.AGENTS.values()],
+                        "Restore Action Count": [agent.action_counter[4] for agent in submission.AGENTS.values()],
+                        "Remove Action Count": [agent.action_counter[3] for agent in submission.AGENTS.values()],
+                        "Blocked Traffic Action Count": [agent.action_counter[5] for agent in submission.AGENTS.values()],
+                        "Allowed Traffic Action Count": [agent.action_counter[6] for agent in submission.AGENTS.values()],
+                        list(submission.AGENTS.values())[0].agent_name + " host and servers amount": len(list(submission.AGENTS.values())[0].hosts),
+                        list(submission.AGENTS.values())[1].agent_name + " host and servers amount": len(list(submission.AGENTS.values())[1].hosts),
+                        list(submission.AGENTS.values())[2].agent_name + " host and servers amount": len(list(submission.AGENTS.values())[2].hosts),
+                        list(submission.AGENTS.values())[3].agent_name + " host and servers amount": len(list(submission.AGENTS.values())[3].hosts)
+                        }
+                        )
 
     end = datetime.now()
     difference = end - start
@@ -351,10 +461,44 @@ def run_evaluation(submission, log_path, max_eps=100, write_to_file=False, seed=
         with open(log_path + "scores.txt", "w") as scores:
             scores.write(f"reward_mean: {reward_mean}\n")
             scores.write(f"reward_stdev: {reward_stdev}\n")
+    generall_info = np.array([{"Agent-Version":"Heuristic_"+list(submission.AGENTS.values())[0].version,
+                            "Mean-Reward": mean(total_reward),
+                            "Stdev-Reward": stdev(total_reward),
+                            "Comment": "" + comment,
+                            "Start": savetime,
+                            "Enable Messages": list(submission.AGENTS.values())[0].enable_messages,
+                            "Analyse Priority": list(submission.AGENTS.values())[0].enable_priority,
+                            "priority levels": list(submission.AGENTS.values())[0].priority_weights,
+                            "Seed": seed,
+                            "Aggressive Analyse": list(submission.AGENTS.values())[0].aggressive_analyse,
+                            "Aggressive Analyse Repetitions": list(submission.AGENTS.values())[0].aggressive_analyse_rep,
+                            "Always Restore": list(submission.AGENTS.values())[0].always_restore,
+                            "Enforce Connections": list(submission.AGENTS.values())[0].enforce_connections,
+                            "All Rewards": total_reward
+                            }
+                            ])
+    # save info and graph
+    folder_path = generall_info[0]["Agent-Version"]+"_"+savetime+"_"+name
+    plot_array(data=total_reward, title="Total Rewards per Episode"+savetime, folder=folder_path)
+    save_dict_array_to_json(filename=("General_info_"+savetime+".json"), arr=generall_info, folder=folder_path)
+    save_dict_array_to_json(filename=("Short_Info_"+savetime+".json"), arr=info_short, folder=folder_path)
+    save_dict_array_to_json(filename=("Log_"+savetime+".json"), arr=log, folder=folder_path)
+
+    print("DONE")
 
 
 if __name__ == "__main__":
     import argparse
+
+    def str2bool(v):
+        if isinstance(v, bool):
+            return v
+        if v.lower() in ('yes', 'true', 't', 'y', '1'):
+            return True
+        elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+            return False
+        else:
+            raise argparse.ArgumentTypeError('Boolean value expected.')
 
     parser = argparse.ArgumentParser("CybORG Evaluation Script")
     parser.add_argument(
@@ -365,12 +509,42 @@ if __name__ == "__main__":
     parser.add_argument(
         "--seed", type=int, default=None, help="Set the seed for CybORG"
     )
-
-    # Added to speed up evaluation 
     parser.add_argument(
-        '--distribute', type=int, default=1, help="How many parallel workers to use"
+        '--log_step', type=str2bool, default=False, help="Do you want to observe every step for an agent (default: blue_agent_0)"
+    )    
+    parser.add_argument(
+        '--log_agent', type=int, default=0, help="Which agent do you want to observe (default: blue_agent_0)"
+    )
+    parser.add_argument(
+        '--comment', type=str, default="", help="additional comment to save in general information"
+    )
+    parser.add_argument(
+        '--prio_weights', type=int, nargs='+', default=[3,2,1], 
+        help="Priority to analyse specific kind of server"
+    )
+    parser.add_argument(
+        '--enable_messages', type=str2bool, default=True, help="Enable blocking of communication between subnet"
+    )
+    parser.add_argument(
+        '--enable_prio', type=str2bool, default=False, help="Enable priority for analysing"
+    )
+    parser.add_argument(
+        '--always_restore', type=str2bool, default=False, help="Enable always restoring a host instead of removing files"
+    )
+    parser.add_argument(
+        '--aggressive_analyse', type=str2bool, default=False, help="Enable aggressive analysis of suspicious hosts"
+    )
+    parser.add_argument(
+        '--aggressive_analyse_rep', type=int, nargs='+', default=[3,2], help="Repetitions of analysis of suspicious hosts (Prio1, Prio2)"
+    )
+    parser.add_argument(
+        '--name', type=str, default="", help="Folder name for results (default: Agent-Version_Timestamp)"
+    )
+    parser.add_argument(
+        '--enforce_connections', type=str2bool, default=True, help="Folder name for results (default: Agent-Version_Timestamp)"
     )
     parser.add_argument("--max-eps", type=int, default=100, help="Max episodes to run")
+    
     args = parser.parse_args()
     args.output_path = os.path.abspath('tmp')
     args.submission_path = os.path.abspath('')
@@ -385,11 +559,21 @@ if __name__ == "__main__":
 
     submission = load_submission(args.submission_path)
 
-    if args.distribute == 1:
-        run_evaluation(
-            submission, max_eps=args.max_eps, log_path=args.output_path, seed=args.seed
-        )
-    else: 
-        run_evaluation_parallel(
-            submission, max_eps=args.max_eps, log_path=args.output_path, seed=args.seed, workers=args.distribute
-        )
+    run_evaluation(
+        submission, 
+        max_eps=args.max_eps, 
+        log_path=args.output_path, 
+        seed=args.seed, 
+        write_to_file=True, 
+        log_step=args.log_step, 
+        log_agent=args.log_agent, 
+        comment=args.comment,
+        enable_messages=args.enable_messages,
+        priority_weights=args.prio_weights,
+        enable_priority=args.enable_prio,
+        always_restore=args.always_restore,
+        aggressive_analyse=args.aggressive_analyse,
+        aggressive_analyse_rep=args.aggressive_analyse_rep, 
+        name=args.name,
+        enforce_connections=args.enforce_connections
+    )

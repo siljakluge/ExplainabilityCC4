@@ -468,7 +468,7 @@ def plot_components_per_step(df_rewards: pd.DataFrame,
             labels.append(f"{round(ep)}:start")
             prev_ep = ep
         # every 10 steps
-        if st % 10 == 0:
+        if st and st % 10 == 0:
             ticks.append(i)
             labels.append(f"step {round(st)}")
 
