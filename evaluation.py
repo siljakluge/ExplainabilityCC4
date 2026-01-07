@@ -18,6 +18,28 @@ import os
 """
 evaluation.py
 
+contractor with -5 in phase 1:
+
+trained with contractor inactive: Average reward is: -4693.66 with a standard deviation of 1273.2476825072572
+File took 0:30:21.175284 amount of time to finish evaluation
+
+trained with contractor active: Average reward is: -5054.31 with a standard deviation of 1315.4571406122964
+File took 0:46:48.997894 amount of time to finish evaluation
+
+heuristic:
+
+
+contractor without -5 in phase 1:
+
+trained with contractor active: Average reward is: -5130.4 with a standard deviation of 1465.6977102314713
+File took 1:04:14.315050 amount of time to finish evaluation
+
+contractorinactive: Average reward is: -4859.68 with a standard deviation of 1137.674385611616
+File took 0:30:27.366128 amount of time to finish evaluation
+
+heuristic: Average reward is: -67.12 with a standard deviation of 47.5310169863593
+File took 0:13:33.637874 amount of time to finish evaluation
+
 """
 
 
@@ -210,7 +232,7 @@ def run_evaluation_parallel(submission, log_path, max_eps=100, write_to_file=Fal
             scores.write(f"reward_mean: {reward_mean}\n")
             scores.write(f"reward_stdev: {reward_stdev}\n")
 
-def run_evaluation(submission, log_path, max_eps=100, write_to_file=False, seed=None):
+def run_evaluation(submission, log_path, max_eps=100, write_to_file=True, seed=None):
     cyborg_version = CYBORG_VERSION
     EPISODE_LENGTH = 500
     scenario = "Scenario4"
@@ -384,6 +406,9 @@ if __name__ == "__main__":
     rmkdir(args.output_path)
 
     submission = load_submission(args.submission_path)
+    # if we got the class, instantiate it
+    if isinstance(submission, type):
+        submission = submission()
 
     if args.distribute == 1:
         run_evaluation(

@@ -19,6 +19,7 @@ class HeuristicWrapper(BlueFixedActionWrapper):
         return super().reset()
     
     def _mask_obs(self, obs):
+        #print(obs)
         """
         Mask the observation, that messages are returned in correct order
         die agenten scheinen immer auf die gleichen subnets gelegt zu werden.

@@ -10,6 +10,16 @@ Key Components:
  - Per-agent memory collection for PPO updates
  - Environment setup using GraphWrapper and EnterpriseScenarioGenerator
  - PPO training loop with GNN-based agents
+
+ contractorinactive: [906] Loss: [3.9109,3.5338,2.3280,1.4372,4.0492]
+Avg reward for episode: -61.833333333333336
+
+contractoractive: [738] Loss: [-0.3357,1.6151,1.5147,1.9283,1.4760]
+Avg reward for episode: -54.5
+
+
+python train.py m1_contractoractive --debug
+
 """
 
 from argparse import ArgumentParser
@@ -29,21 +39,40 @@ from models.memory_buffer import MultiPPOMemory
 from wrappers.graph_wrapper import GraphWrapper
 from wrappers.observation_graph import ObservationGraph
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+elif torch.backends.mps.is_available():
+    device = torch.device("mps")
+else:
+    device = torch.device("cpu")
+
 print("Using device:", device)
 
+
 SEED = 1337
+
+"""
+change this if real gpu
 HYPER_PARAMS = SimpleNamespace(
     N = 25,             # How many episodes before training
     workers = 25,       # How many envs can run in parallel
     bs = 2500,          # How many steps to learn from at a time
     episode_len = 500,
-    training_episodes = 500_000, # Realistically, stops improving around 50k
+    training_episodes = 50_000, # Realistically, stops improving around 50k
     epochs = 4
+)"""
+HYPER_PARAMS = SimpleNamespace(
+    N = 6,  # Episoden pro Update
+    workers = 2,  # parallel envs (Mac nicht übertreiben)
+    bs = 384,  # Batchsize für PPO
+    episode_len = 100,
+    training_episodes = 906,
+    epochs = 2,
 )
 
+
 N_AGENTS = 5 
-MAX_THREADS = 36 # 5 per subnet (20 for agent 4, 4 for all others)
+MAX_THREADS = 8 #36  5 per subnet (20 for agent 4, 4 for all others)
 torch.manual_seed(SEED)
 torch.set_num_threads(MAX_THREADS)
 
@@ -136,6 +165,7 @@ def generate_episode_job(agents, env, hp, i):
         seed (int): RNG seed for reproducibility
     """
 def train(agents, hp, seed=SEED):
+    print(HYPER_PARAMS)
     [agent.train() for agent in agents]
     log = []
 
@@ -156,11 +186,12 @@ def train(agents, hp, seed=SEED):
     # because they're managing 3 subnets instead of 1 (bigger graph/matrices)
     # Still not perfectly load-balanced, but close enough
     def learn(i):
-            if i < 4:
-                torch.set_num_threads(MAX_THREADS // 9)
-            else:
-                torch.set_num_threads((MAX_THREADS // 9) * N_AGENTS)
-            return agents[i].learn()
+        base = max(1, MAX_THREADS // 9)
+        if i < 4:
+            torch.set_num_threads(base)
+        else:
+            torch.set_num_threads(base * N_AGENTS)
+        return agents[i].learn()
 
     # Begin training loop 
     for e in range(hp.training_episodes // hp.N):
@@ -218,13 +249,12 @@ if __name__ == '__main__':
     print(args)
 
     if args.debug:
-        HYPER_PARAMS.N = 2
-        HYPER_PARAMS.workers = 2
-        HYPER_PARAMS.bs = 64
-        HYPER_PARAMS.episode_len = 50
-        HYPER_PARAMS.training_episodes = 20   # really tiny
-        HYPER_PARAMS.epochs = 1
-
+        HYPER_PARAMS.N = 6  # Episoden pro Update
+        HYPER_PARAMS.workers = 2  # parallel envs (Mac nicht übertreiben)
+        HYPER_PARAMS.bs = 384  # Batchsize für PPO
+        HYPER_PARAMS.episode_len = 100
+        HYPER_PARAMS.training_episodes = 1000
+        HYPER_PARAMS.epochs = 2
 
     # Add directory for log files
     if not os.path.exists('logs'):
@@ -242,7 +272,14 @@ if __name__ == '__main__':
     #       1 bit if message was sent successfully 
     #
     # All handled in wrapper.graph_wrapper
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
+
+    print("Using device:", device)
 
     agents = [InductiveGraphPPOAgent(
         ObservationGraph.DIM + 5,
