@@ -24,14 +24,14 @@ from models.cage4 import load
 from wrappers.graph_wrapper import GraphWrapper
 
 
-"""
+
 ### Import custom agents here ###
 from Heuristic_Agent_v0_3 import H_Agent
 
 class Submission:
 
     # Submission name
-    NAME: str = "v03"
+    NAME: str = "heuristic"
 
     # Name of your team
     TEAM: str = "SIX"
@@ -53,14 +53,14 @@ class Submission:
 
 """
 class Submission:
-    NAME = "KEEP"
-    TEAM = "Cybermonic"
+    NAME = "RL_contractor_active"
+    TEAM = "Team.KI"
     TECHNIQUE = "Graph-based PPO With Intra-agent Communication"
 
     def __init__(self):
         self.AGENTS = {
             f"blue_agent_{i}": load(
-                f"{os.path.dirname(__file__)}/weights/gnn_ppo-{i}.pt",
+                f"{os.path.dirname(__file__)}/weights/contractor_active/gnn_ppo-{i}.pt",
                 map_location="cpu"
             )
             for i in range(5)
@@ -69,3 +69,4 @@ class Submission:
     @staticmethod
     def wrap(env):
         return GraphWrapper(env)
+"""

@@ -141,50 +141,73 @@ def plot_total(df_total: pd.DataFrame, out_dir: Path):
 def plot_components_by_phase(df_rewards: pd.DataFrame,
                              df_total: pd.DataFrame,
                              df_acost: pd.DataFrame,
-                             out_dir: Path):
+                             out_dir: Path,
+                             avg: bool = True):
     """
-    Stacked bar chart of cumulative reward per phase and component,
-    including Action Cost (summed across all agents and steps in that phase).
+    Stacked bar chart of reward per phase and component + Action Cost.
+    If avg=True: plot the *mean per episode* (episode totals averaged within each phase).
+    If avg=False: plot the *cumulative* sum over all episodes.
     """
     if df_rewards.empty and df_acost.empty:
         return None
 
     # ---- 1. Reward components per phase ----
     if not df_rewards.empty:
-        pivot_rewards = (
-            df_rewards.groupby(["phase", "component"])["value"]
-            .sum()
-            .reset_index()
-            .pivot_table(
-                index="phase",
-                columns="component",
-                values="value",
-                fill_value=0.0,
+        if avg:
+            # sum within (episode, phase, component) then mean across episodes for each (phase, component)
+            rewards_phase_comp = (
+                df_rewards.groupby(["episode", "phase", "component"])["value"]
+                .sum()
+                .groupby(["phase", "component"])
+                .mean()
+                .reset_index()
             )
+        else:
+            rewards_phase_comp = (
+                df_rewards.groupby(["phase", "component"])["value"]
+                .sum()
+                .reset_index()
+            )
+
+        pivot_rewards = rewards_phase_comp.pivot_table(
+            index="phase",
+            columns="component",
+            values="value",
+            fill_value=0.0,
         )
     else:
         pivot_rewards = pd.DataFrame()
 
     # ---- 2. Action Cost per phase (attach phase via df_total) ----
     if not df_acost.empty and not df_total.empty:
-        # df_total has (episode, step, phase)
         df_acost_phase = df_acost.merge(
             df_total[["episode", "step", "phase"]],
             on=["episode", "step"],
             how="left",
-        )
-        # Drop rows where we couldn't find a phase (just in case)
-        df_acost_phase = df_acost_phase.dropna(subset=["phase"])
+        ).dropna(subset=["phase"])
 
         if not df_acost_phase.empty:
             df_acost_phase["phase"] = df_acost_phase["phase"].astype(int)
-            df_acost_phase = (
-                df_acost_phase.groupby("phase")["action_cost"]
-                .sum()
-                .reset_index()
-                .rename(columns={"action_cost": "Action Cost"})
-            )
-            pivot_acost = df_acost_phase.set_index("phase")
+
+            if avg:
+                # sum within (episode, phase) then mean across episodes for each phase
+                acost_phase = (
+                    df_acost_phase.groupby(["episode", "phase"])["action_cost"]
+                    .sum()
+                    .groupby("phase")
+                    .mean()
+                    .reset_index()
+                    .rename(columns={"action_cost": "Action Cost"})
+                )
+            else:
+                acost_phase = (
+                    df_acost_phase.groupby("phase")["action_cost"]
+                    .sum()
+                    .reset_index()
+                    .rename(columns={"action_cost": "Action Cost"})
+                )
+
+            pivot_acost = acost_phase.set_index("phase")
         else:
             pivot_acost = pd.DataFrame()
     else:
@@ -217,9 +240,14 @@ def plot_components_by_phase(df_rewards: pd.DataFrame,
         ax.bar(x, vals, bottom=bottom, label=comp)
         bottom = bottom + vals
 
-    ax.set_title("Cumulative Reward by Phase (Including Action Cost)")
+    if avg:
+        ax.set_title("Average Reward by Phase (Including Action Cost)")
+        ax.set_ylabel("Mean Reward")
+    else:
+        ax.set_title("Cumulative Reward by Phase (Including Action Cost)")
+        ax.set_ylabel("Cumulative Reward")
+
     ax.set_xlabel("Phase")
-    ax.set_ylabel("Cumulative Reward")
 
     ax.set_xticks(x)
     ax.set_xticklabels(phases)
@@ -234,12 +262,14 @@ def plot_components_by_phase(df_rewards: pd.DataFrame,
     return out
 
 def plot_components_by_subnet_per_phase(df_rewards: pd.DataFrame,
-                                        out_dir: Path):
+                                        out_dir: Path,
+                                        avg: bool = True):
     """
     For each phase, create a stacked bar chart:
       x-axis: subnet
-      y-axis: cumulative reward
-      bars: stacked by component (summed across all steps/episodes in that phase).
+      y-axis: cumulative reward (avg=False) OR mean per episode (avg=True)
+      bars: stacked by component.
+
     Saves one PNG per phase in out_dir.
     """
     if df_rewards.empty or "phase" not in df_rewards.columns:
@@ -248,7 +278,6 @@ def plot_components_by_subnet_per_phase(df_rewards: pd.DataFrame,
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # collect output paths per phase (optional, for inspection)
     outputs = {}
 
     for phase in sorted(df_rewards["phase"].dropna().unique()):
@@ -256,11 +285,24 @@ def plot_components_by_subnet_per_phase(df_rewards: pd.DataFrame,
         if df_p.empty:
             continue
 
+        if avg:
+            # sum within (episode, subnet, component) then mean across episodes
+            agg = (
+                df_p.groupby(["episode", "subnet", "component"])["value"]
+                .sum()
+                .groupby(["subnet", "component"])
+                .mean()
+                .reset_index()
+            )
+        else:
+            agg = (
+                df_p.groupby(["subnet", "component"])["value"]
+                .sum()
+                .reset_index()
+            )
+
         pivot = (
-            df_p.groupby(["subnet", "component"])["value"]
-            .sum()
-            .reset_index()
-            .pivot_table(
+            agg.pivot_table(
                 index="subnet",
                 columns="component",
                 values="value",
@@ -275,7 +317,6 @@ def plot_components_by_subnet_per_phase(df_rewards: pd.DataFrame,
         subnets = list(pivot.index)
         x = np.arange(len(subnets))
 
-        # make plot wider if many subnets
         width = max(8, len(subnets) * 1.2)
         fig, ax = plt.subplots(figsize=(width, 6))
 
@@ -287,16 +328,17 @@ def plot_components_by_subnet_per_phase(df_rewards: pd.DataFrame,
             ax.bar(x, vals, bottom=bottom, label=comp)
             bottom = bottom + vals
 
-        ax.set_title(f"Cumulative Reward by Subnet and Component (Phase {phase})")
+        y_label = "Avg Reward per Episode" if avg else "Cumulative Reward"
+        ax.set_title(f"{y_label} by Subnet and Component (Phase {phase})")
         ax.set_xlabel("Subnet")
-        ax.set_ylabel("Cumulative Reward")
+        ax.set_ylabel(y_label)
 
         ax.set_xticks(x)
         ax.set_xticklabels(subnets, rotation=45, ha="right")
 
         ax.legend(title="Component", bbox_to_anchor=(1.05, 1), loc="upper left")
 
-        out_path = out_dir / f"stacked_components_by_subnet_phase_{phase}.png"
+        out_path = out_dir / f"stacked_components_by_subnet_phase_{phase}_{'avg' if avg else 'sum'}.png"
         fig.tight_layout()
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         plt.close(fig)
@@ -304,6 +346,7 @@ def plot_components_by_subnet_per_phase(df_rewards: pd.DataFrame,
         outputs[phase] = out_path
 
     return outputs
+
 
 def plot_phase_stacked(df_rewards: pd.DataFrame,
                        df_total: pd.DataFrame,
@@ -494,20 +537,51 @@ def plot_components_per_step(df_rewards: pd.DataFrame,
     plt.close(fig)
     return out
 
-def plot_components_by_subnet(df_rewards: pd.DataFrame, out_dir: Path):
+def plot_components_by_subnet(df_rewards: pd.DataFrame,
+                              out_dir: Path,
+                              avg: bool = True):
+    """
+    Stacked bar chart by subnet and component.
+    If avg=True: mean reward per episode.
+    If avg=False: cumulative reward over all episodes.
+    """
     if df_rewards.empty:
         return None
+
+    if avg:
+        agg = (
+            df_rewards.groupby(["episode", "subnet", "component"])["value"]
+            .sum()
+            .groupby(["subnet", "component"])
+            .mean()
+            .reset_index()
+        )
+    else:
+        agg = (
+            df_rewards.groupby(["subnet", "component"])["value"]
+            .sum()
+            .reset_index()
+        )
+
     pivot = (
-        df_rewards.groupby(["subnet", "component"])["value"]
-        .sum()
-        .reset_index()
-        .pivot_table(index="subnet", columns="component", values="value", fill_value=0)
+        agg.pivot_table(
+            index="subnet",
+            columns="component",
+            values="value",
+            fill_value=0.0,
+        )
         .sort_index()
     )
+
+    if pivot.empty:
+        return None
+
     idx = range(len(pivot))
-    plt.figure()
+    plt.figure(figsize=(max(8, len(pivot) * 1.2), 6))
+
     bottom = None
     cols = list(pivot.columns)
+
     for i, comp in enumerate(cols):
         vals = pivot[comp].values
         if i == 0:
@@ -515,16 +589,23 @@ def plot_components_by_subnet(df_rewards: pd.DataFrame, out_dir: Path):
             bottom = vals
         else:
             plt.bar(idx, vals, bottom=bottom, label=comp)
-            bottom = [b + v for b, v in zip(bottom, vals)]
-    plt.title("Cumulative Reward by Subnet and Component")
+            bottom = bottom + vals
+
+    y_label = "Avg Reward per Episode" if avg else "Cumulative Reward"
+    plt.title(f"{y_label} by Subnet and Component")
     plt.xlabel("Subnet")
-    plt.ylabel("Cumulative reward")
+    plt.ylabel(y_label)
+
     plt.xticks(list(idx), pivot.index, rotation=45, ha="right")
     plt.legend(title="Component")
-    out = out_dir / "stacked_components_by_subnet.png"
+
+    out = out_dir / f"stacked_components_by_subnet_{'avg' if avg else 'sum'}.png"
+    plt.tight_layout()
     plt.savefig(out, bbox_inches="tight")
     plt.close()
+
     return out
+
 
 def plot_episode_detail(df_rewards: pd.DataFrame, df_acost: pd.DataFrame, episode: int, out_dir: Path):
     """

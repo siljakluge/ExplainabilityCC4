@@ -491,7 +491,7 @@ class Path(enum.Enum):
             "c:\\windows\\system32\\": cls.WINDOWS_SYSTEM,
             "c:/windows/": cls.WINDOWS,
             "c:\\windows\\": cls.WINDOWS,
-            "/tmp/": cls.TEMP,
+            "/evaluation_contractor_active_-5/": cls.TEMP,
             "c:\\temp\\": cls.TEMP,
             "/sbin/": cls.SBIN,
             "/sbin": cls.SBIN,
@@ -504,7 +504,7 @@ class Path(enum.Enum):
             "/etc/": cls.ETC,
             "/etc": cls.ETC,
             "c:\\users\\administrator\\desktop\\": cls.ADMINISTRATOR_DESKTOP,
-            "/tmp/webserver/": cls.WEBSERVER,
+            "/evaluation_contractor_active_-5/webserver/": cls.WEBSERVER,
             "/usr/share/exploitdb/exploits/linux/local/": cls.EXPLOIT,
         }
         return path_map.get(path_string.lower(), cls.UNKNOWN)

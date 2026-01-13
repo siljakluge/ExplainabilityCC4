@@ -542,11 +542,11 @@ class InductiveGraphPPOAgent():
         return last_total_loss.item() if last_total_loss is not None else 0.0
 
 
-def load(in_f):
+def load(in_f, map_location="cpu"):
+    data = torch.load(in_f, map_location=map_location)
     '''
     Loads model checkpoint file 
     '''
-    data = torch.load(in_f)
     args,kwargs = data['agent']
 
     agent = InductiveGraphPPOAgent(*args, **kwargs)

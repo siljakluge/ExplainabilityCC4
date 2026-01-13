@@ -168,6 +168,7 @@ class BlueFixedActionWrapper(BaseWrapper):
 
         observations = {agent: o for agent, o in obs.items() if "blue" in agent}
 
+
         rewards = {}
         for agent, reward in rews.items():
             if "blue" in agent:

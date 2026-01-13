@@ -40,7 +40,7 @@ class BlueRewardMachine(RewardCalculator):
                 "public_access_zone_subnet":    {"LWF": -1, "ASF": -1, "RIA": -3}, # Part of HQ Network in ReadMe
                 "admin_network_subnet":         {"LWF": -1, "ASF": -1, "RIA": -3}, # Part of HQ Network in ReadMe
                 "office_network_subnet":        {"LWF": -1, "ASF": -1, "RIA": -3}, # Part of HQ Network in ReadMe
-                "contractor_network_subnet":    {"LWF":  0, "ASF": -5, "RIA": -5},
+                "contractor_network_subnet":    {"LWF":  0, "ASF": -5, "RIA": -5}, # {"LWF":  0, "ASF": -5, "RIA": -5}, {"LWF":  0, "ASF": 0, "RIA": 0},
                 "restricted_zone_a_subnet":     {"LWF": -1, "ASF": -3, "RIA": -1},
                 "operational_zone_a_subnet":    {"LWF": -1, "ASF": -1, "RIA": -1},
                 "restricted_zone_b_subnet":     {"LWF": -1, "ASF": -3, "RIA": -1},

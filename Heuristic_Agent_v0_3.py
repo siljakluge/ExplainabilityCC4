@@ -84,7 +84,7 @@ class H_Agent():
     def get_action(self, obs, action_space):
         # Reset the agent if a new episode starts (necessary für submission, because the queues are not reset automatically)
         if obs['success'] == TernaryEnum.UNKNOWN and np.sum(self.action_counter) != 0:
-            print(f"Reset Agent {self.agent_name}")
+            #print(f"Reset Agent {self.agent_name}")
             self._reset_agents()
 
         # Init on first observation

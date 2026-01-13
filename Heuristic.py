@@ -369,7 +369,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--max-eps", type=int, default=100, help="Max episodes to run")
     args = parser.parse_args()
-    args.output_path = os.path.abspath('tmp')
+    args.output_path = os.path.abspath('evaluation_contractor_active_-5')
     args.submission_path = os.path.abspath('')
 
     if not args.output_path.endswith("/"):

@@ -27,6 +27,106 @@ from CybORG.Shared.Enums import TernaryEnum
 
 from wrappers.observation_graph import ObservationGraph
 from wrappers.globals import *
+from enum import Enum
+
+
+def _action_type(a) -> str:
+    if a is None:
+        return "None"
+    s = str(a).strip()
+    return s.split()[0] if s else "Unknown"
+
+
+def _ternary_to_int(x) -> int:
+    # TRUE=1, FALSE=3, IN_PROGRESS=4 etc in your enums
+    if isinstance(x, Enum):
+        return int(x.value)
+    try:
+        return int(x)
+    except Exception:
+        return -1
+
+
+def _iter_strings(obj):
+    """Yield lowercase strings found anywhere in nested dict/list structures."""
+    if obj is None:
+        return
+    if isinstance(obj, str):
+        yield obj.lower()
+    elif isinstance(obj, dict):
+        for k, v in obj.items():
+            yield str(k).lower()
+            yield from _iter_strings(v)
+    elif isinstance(obj, (list, tuple)):
+        for v in obj:
+            yield from _iter_strings(v)
+    else:
+        # other objects: just string-repr them (covers enums, action objects, etc.)
+        yield str(obj).lower()
+
+
+def extract_shap_features(dict_obs: dict, msg_matrix: np.ndarray | None = None) -> dict:
+    """
+    Returns a small, interpretable feature dict for SHAP / analysis.
+
+    msg_matrix: your processed msg that you later concatenate:
+      shape typically (#subnets, 3) where columns are [scanned, compromised, is_received]
+      (based on your _to_obs construction)
+    """
+    feats = {}
+
+    # --- previous action signals ---
+    feats["prev_action_success"] = _ternary_to_int(dict_obs.get("success"))
+    feats["prev_action = "] = _action_type(dict_obs.get("action"))
+
+    # --- keyword detectors in obs ---
+    strings = list(_iter_strings(dict_obs))
+
+    def has_kw(*kws):
+        kws = [k.lower() for k in kws]
+        return int(any(any(kw in s for kw in kws) for s in strings))
+
+    # adjust keywords as your environment uses them
+    feats["has_cmd_sh"] = has_kw("cmd.sh", "cmd_sh", "cmdsh")
+    feats["has_escalate"] = has_kw("escalate", "privilege escalation", "privesc", "sudo")
+    feats["has_decoy_exploit"] = has_kw("decoy", "exploit",
+                                        "rfi")  # include rfi if that's your decoy/exploit signal
+
+    # --- message features ---
+    if msg_matrix is not None:
+        m = np.asarray(msg_matrix)
+        # expected: columns [scanned, compromised, is_received]
+        # but your code sets is_received in last col (and -1 for self only in x, not here),
+        # so here it should be 0/1.
+        if m.ndim == 2 and m.shape[1] >= 3:
+            scanned = m[:, 0]
+            compromised = m[:, 1]
+            received = m[:, 2]
+
+            feats["msg_any_received"] = int(np.any(received > 0))
+            feats["msg_n_received"] = int(np.sum(received > 0))
+
+            feats["msg_any_scanned"] = int(np.any(scanned > 0))
+            feats["msg_any_compromised"] = int(np.any(compromised > 0))
+
+            feats["msg_n_scanned_flags"] = int(np.sum(scanned > 0))
+            feats["msg_n_compromised_flags"] = int(np.sum(compromised > 0))
+        else:
+            feats["msg_any_received"] = 0
+            feats["msg_n_received"] = 0
+            feats["msg_any_scanned"] = 0
+            feats["msg_any_compromised"] = 0
+            feats["msg_n_scanned_flags"] = 0
+            feats["msg_n_compromised_flags"] = 0
+    else:
+        feats["msg_any_received"] = 0
+        feats["msg_n_received"] = 0
+        feats["msg_any_scanned"] = 0
+        feats["msg_any_compromised"] = 0
+        feats["msg_n_scanned_flags"] = 0
+        feats["msg_n_compromised_flags"] = 0
+
+    return feats
 
 class GraphWrapper(EnterpriseMAE):
     def __init__(self, env: CybORG, *args, **kwargs):
@@ -128,8 +228,15 @@ class GraphWrapper(EnterpriseMAE):
                 msg = msg[:, :2]
 
             msg = np.concatenate([msg, recieved_msg], axis=1)
+            feats = extract_shap_features(dict_obs, msg_matrix=msg)
 
-            # Update the graph based on the raw dictionary 
+            if agent not in info or info[agent] is None:
+                info[agent] = {}
+            info[agent]["shap_features"] = feats
+            info[agent]["chosen_action_type"] = _action_type(action.get(agent))
+            info[agent]["chosen_action_str"] = str(action.get(agent))
+
+            # Update the graph based on the raw dictionary
             g.parse_observation(dict_obs)
 
             # Pull node features from tabular observation, and also update 

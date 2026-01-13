@@ -2,8 +2,14 @@ import os
 import torch
 from models.cage4 import load  # eure load()-Funktion
 
-SRC = "checkpoints/m1_contractorinactive"   # <-- fname aus train.py
-DST = "weights"
+contractor_active = True
+
+if contractor_active:
+    SRC = "checkpoints/contractoractive"   # <-- fname aus train.py
+    DST = "weights/contractor_active"
+else:
+    SRC = "checkpoints/contractorinactive"   # <-- fname aus train.py
+    DST = "weights/contractor_inactive"
 
 os.makedirs(DST, exist_ok=True)
 
