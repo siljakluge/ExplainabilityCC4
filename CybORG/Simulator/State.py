@@ -454,7 +454,7 @@ class State(CybORGLogger):
         host.sessions = {}
         host.processes = []
         for file in host.files:
-            if file.path == "/evaluation_contractor_active_-5/":
+            if file.path == "/evaluation_contractor_active_0/":
                 host.files.remove(file)
 
         # start back up
