@@ -24,7 +24,7 @@ from models.cage4 import load
 from wrappers.graph_wrapper import GraphWrapper
 
 
-
+"""
 ### Import custom agents here ###
 from Heuristic_Agent_v0_3 import H_Agent
 
@@ -53,14 +53,14 @@ class Submission:
 
 """
 class Submission:
-    NAME = "RL_contractor_active"
+    NAME = "RL_contractor_inactive"
     TEAM = "Team.KI"
     TECHNIQUE = "Graph-based PPO With Intra-agent Communication"
 
     def __init__(self):
         self.AGENTS = {
             f"blue_agent_{i}": load(
-                f"{os.path.dirname(__file__)}/weights/contractor_active/gnn_ppo-{i}.pt",
+                f"{os.path.dirname(__file__)}/weights/contractor_inactive/gnn_ppo-{i}.pt",
                 map_location="cpu"
             )
             for i in range(5)
@@ -69,4 +69,3 @@ class Submission:
     @staticmethod
     def wrap(env):
         return GraphWrapper(env)
-"""

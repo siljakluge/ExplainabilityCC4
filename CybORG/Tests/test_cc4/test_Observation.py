@@ -352,7 +352,7 @@ def test_add_file_info(add_file_info):
     file = observation.get_dict()["test"]["Files"][0]
     assert file["File Name"] == "dodgy"
     assert file["Known File"] == FileType.UNKNOWN
-    assert file["Path"] == "/evaluation_contractor_active_-5/"
+    assert file["Path"] == "/evaluation_contractor_active_0/"
     assert file["Known Path"] == Path.TEMP
     assert file["Vendor"] == Vendor.UNKNOWN
     assert file["Version"] == "0.1"

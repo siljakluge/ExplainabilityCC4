@@ -2,7 +2,7 @@ import os
 import torch
 from models.cage4 import load  # eure load()-Funktion
 
-contractor_active = True
+contractor_active = False
 
 if contractor_active:
     SRC = "checkpoints/contractoractive"   # <-- fname aus train.py
