@@ -5,6 +5,7 @@ from typing import Dict, List, Any, Optional
 from statistics import mean, stdev
 from datetime import datetime
 from pathlib import Path
+from plot_actions import log_actions_jsonl
 
 from policy_shap_heuristic import train_surrogate_and_shap
 from shap_gnn import run_shap
@@ -259,12 +260,7 @@ def run_explainability(
                 for agent_name, agent in submission.AGENTS.items()
                 if agent_name in wrapped_cyborg.agents
             }
-            all_actions.append(
-                    {
-                        agent_name: cyborg.get_last_action(agent_name)
-                        for agent_name in wrapped_cyborg.agents
-                    }
-                )
+            log_actions_jsonl(log_path_actions, episode=epi, step=t, actions=actions, mode="type")
 
             observations, rewards_scalar, term, trunc, info = wrapped_cyborg.step(actions)
             all_observations.append(observations)
@@ -316,8 +312,8 @@ def run_explainability(
         os.path.join(output_dir, "summary_scalar.json"),
     )
     # plot actions
-    plot_action_frequencies_per_agent(all_actions, out_dir=Path(os.path.join(output_dir, "Actions")), mode="type", normalize=True, top_k=None)
-    plot_action_frequencies_per_agent(all_actions, out_dir=Path(os.path.join(output_dir, "Actions")), mode="type", normalize=False, top_k=25)
+    #plot_action_frequencies_per_agent(all_actions, out_dir=Path(os.path.join(output_dir, "Actions")), mode="type", normalize=True, top_k=None)
+    #plot_action_frequencies_per_agent(all_actions, out_dir=Path(os.path.join(output_dir, "Actions")), mode="type", normalize=False, top_k=25)
 
     # SHAP Analysis
     if shap & is_heuristic:
@@ -345,7 +341,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser("CybORG Reward Decomposition")
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--max-eps", type=int, default=100)
-    parser.add_argument("--episode-length", type=int, default=100)
+    parser.add_argument("--episode-length", type=int, default=500)
     parser.add_argument("--shap", type=bool, default=False)
     parser.add_argument("--rew-decomp", type=bool, default=True)
     parser.add_argument("--output", type=str, default=os.path.abspath("Results"))
@@ -355,6 +351,8 @@ if __name__ == "__main__":
 
     log_path = Path("reward_log.jsonl")
     log_path.write_text("")
+    log_path_actions = Path("actions.jsonl")
+    log_path_actions.write_text("")
 
 
     submission = load_submission(args.submission_path)
