@@ -102,9 +102,24 @@ def _aggregate_rewards(df_rewards: pd.DataFrame, avg: bool) -> pd.DataFrame:
 
 
 def _order_subnets(agg: pd.DataFrame) -> list[str]:
-    preferred_subnets = [s for s in SUBNET_LABEL_MAP.keys() if s in set(agg["subnet"])]
-    other_subnets = sorted([s for s in agg["subnet"].dropna().unique() if s not in SUBNET_LABEL_MAP])
-    return preferred_subnets + other_subnets
+    preferred_order = [
+        "operational_zone_a_subnet",
+        "operational_zone_b_subnet",
+        "restricted_zone_a_subnet",
+        "restricted_zone_b_subnet",
+        "contractor_network_subnet",
+        "admin_network_subnet",
+        "office_network_subnet",
+        "public_access_zone_subnet",
+    ]
+
+    present = set(agg["subnet"].dropna().unique())
+    preferred = [s for s in preferred_order if s in present]
+
+    # anything not in the preferred list goes at the end (stable, sorted)
+    other = sorted([s for s in present if s not in preferred_order])
+    return preferred + other
+
 
 
 def _order_components(agg: pd.DataFrame) -> list[str]:
