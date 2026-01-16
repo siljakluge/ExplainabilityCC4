@@ -260,7 +260,13 @@ def run_explainability(
                 for agent_name, agent in submission.AGENTS.items()
                 if agent_name in wrapped_cyborg.agents
             }
-            log_actions_jsonl(log_path_actions, episode=epi, step=t, actions=actions, mode="type")
+            if not is_heuristic:
+                actions_actual =  {
+                            agent_name: wrapped_cyborg.action_translator(agent_name, actions[agent_name])
+                            for agent_name in wrapped_cyborg.agents}
+            else: actions_actual = actions
+
+            log_actions_jsonl(log_path_actions, episode=epi, step=t, actions=actions_actual, mode="type")
 
             observations, rewards_scalar, term, trunc, info = wrapped_cyborg.step(actions)
             all_observations.append(observations)

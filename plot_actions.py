@@ -46,7 +46,27 @@ def stable_color(action: str):
     return cmap(h % cmap.N)
 
 
-def action_to_label(act: Any, mode: str = "type") -> str:
+def action_to_label(act, mode: str = "type") -> str:
+    """
+    act is typically like [AllowTrafficZone] or [DeployDecoy host_x]
+    mode:
+      - "type": only the action name (first token)
+      - "full": full string representation (keeps parameters/targets)
+    """
+    # unwrap list/tuple like [AllowTrafficZone]
+    if isinstance(act, (list, tuple)) and len(act) == 1:
+        act = act[0]
+    elif isinstance(act, (list, tuple)) and len(act) == 0:
+        return "None"
+
+    s = str(act).strip()  # e.g. "DeployDecoy office_network_subnet_user_host_0"
+    if mode == "full":
+        return s
+    # mode == "type"
+    return s.split()[0] if s else "Unknown"
+
+
+def actions_to_label(act: Any, mode: str = "type") -> str:
     """
     Your actions are typically like [AllowTrafficZone] or [DeployDecoy host_x].
     mode:
@@ -212,8 +232,8 @@ def plot_action_frequencies_per_agent_from_log(
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--log", type=str, default="actions.jsonl", help="Path to action_log.jsonl")
-    ap.add_argument("--out_dir", type=str, default="Results", help="Output directory for plots")
+    ap.add_argument("--log", type=str, default="actions_rl.jsonl", help="Path to action_log.jsonl")
+    ap.add_argument("--out_dir", type=str, default="ActionPlots", help="Output directory for plots")
     ap.add_argument("--normalize", type=bool, default=True, help="Normalize the plots")
     ap.add_argument("--top_k", type=int, default=25, help="Keep only top_k actions (rest -> OTHER). Use -1 to disable.")
     args = ap.parse_args()
