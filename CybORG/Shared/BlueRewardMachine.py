@@ -45,7 +45,7 @@ class BlueRewardMachine(RewardCalculator):
                 "operational_zone_a_subnet":    {"LWF": -1, "ASF": -1, "RIA": -1},
                 "restricted_zone_b_subnet":     {"LWF": -1, "ASF": -3, "RIA": -1},
                 "operational_zone_b_subnet":    {"LWF": -1, "ASF": -1, "RIA": -1},
-                "internet_subnet":              {"LWF":  0, "ASF":  0, "RIA": -1}}, 
+                "internet_subnet":              {"LWF":  0, "ASF":  0, "RIA": 0}},
             1:{
                 "public_access_zone_subnet":    {"LWF": -1, "ASF": -1, "RIA": -3},
                 "admin_network_subnet":         {"LWF": -1, "ASF": -1, "RIA": -3},
