@@ -232,8 +232,8 @@ def plot_action_frequencies_per_agent_from_log(
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--log", type=str, default="actions_rl.jsonl", help="Path to action_log.jsonl")
-    ap.add_argument("--out_dir", type=str, default="ActionPlots", help="Output directory for plots")
+    ap.add_argument("--log", type=str, default="actions_heuristic.jsonl", help="Path to action_log.jsonl")
+    ap.add_argument("--out_dir", type=str, default="ActionPlotsH", help="Output directory for plots")
     ap.add_argument("--normalize", type=bool, default=True, help="Normalize the plots")
     ap.add_argument("--top_k", type=int, default=25, help="Keep only top_k actions (rest -> OTHER). Use -1 to disable.")
     args = ap.parse_args()

@@ -68,10 +68,6 @@ def _iter_strings(obj):
 def extract_shap_features(dict_obs: dict, msg_matrix: np.ndarray | None = None) -> dict:
     """
     Returns a small, interpretable feature dict for SHAP / analysis.
-
-    msg_matrix: your processed msg that you later concatenate:
-      shape typically (#subnets, 3) where columns are [scanned, compromised, is_received]
-      (based on your _to_obs construction)
     """
     feats = {}
 

@@ -12,8 +12,8 @@ This script:
 - writes a CSV per run and a combined CSV
 
 Usage:
-  python export_all_logs_to_csv.py \
-      --logs logs/contractoractive.pt logs/contractorinactive.pt logs/m1_contractorinactive.pt \
+  python create_csv_logs.py \
+      -- logs/contractoractive.pt \
       --outdir exported_csv
 """
 
@@ -110,9 +110,10 @@ def main() -> None:
     ap.add_argument(
         "--logs",
         nargs="+",
-        required=True,
+        default=["logs/contractoractive_neu_50k.pt"],
         help="Paths to .pt log files, e.g. logs/contractoractive.pt",
     )
+
     ap.add_argument("--outdir", default="exported_csv", help="Output directory for CSV files")
     args = ap.parse_args()
 

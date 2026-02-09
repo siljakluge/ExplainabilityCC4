@@ -53,14 +53,14 @@ class Submission:
 
 """
 class Submission:
-    NAME = "RL_contractor_inactive"
+    NAME = "RL_contractor_active_50k"
     TEAM = "Team.KI"
     TECHNIQUE = "Graph-based PPO With Intra-agent Communication"
 
     def __init__(self):
         self.AGENTS = {
             f"blue_agent_{i}": load(
-                f"{os.path.dirname(__file__)}/weights/contractor_inactive/gnn_ppo-{i}.pt",
+                f"{os.path.dirname(__file__)}/weights/contractoractive_neu_50k/gnn_ppo-{i}.pt",
                 map_location="cpu"
             )
             for i in range(5)
