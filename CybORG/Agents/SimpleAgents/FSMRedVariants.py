@@ -121,24 +121,6 @@ class DiscoveryFSRed(FiniteStateRedAgent):
 
         return map
 
-    # Add these classes to your existing FSMRedVariants.py
-    # They follow the exact override style used by DiscoveryFSRed/VerboseFSRed:
-    #   - set_host_state_priority_list(self)
-    #   - state_transitions_probability(self)
-    #
-    # Action index reference (length=9 lists):
-    # 0 DiscoverRemoteSystems
-    # 1 AggressiveServiceDiscovery
-    # 2 StealthServiceDiscovery
-    # 3 DiscoverDeception
-    # 4 ExploitRemoteService_cc4
-    # 5 PrivilegeEscalate
-    # 6 Impact
-    # 7 DegradeServices
-    # 8 Withdraw
-
-    from CybORG.Agents.SimpleAgents.FiniteStateRedAgent import FiniteStateRedAgent
-
     class StealthPivotFSRed(FiniteStateRedAgent):
         """
         Profile: Stealthy lateral movement.
