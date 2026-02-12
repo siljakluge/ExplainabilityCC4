@@ -60,7 +60,7 @@ class Submission:
     def __init__(self):
         self.AGENTS = {
             f"blue_agent_{i}": load(
-                f"{os.path.dirname(__file__)}/weights/contractoractive_neu_50k/gnn_ppo-{i}.pt",
+                f"{os.path.dirname(__file__)}/weights/exp_mix/gnn_ppo-{i}.pt",
                 map_location="cpu"
             )
             for i in range(5)
