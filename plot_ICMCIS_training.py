@@ -10,7 +10,7 @@ import scienceplots  # noqa: F401
 # ----------------------------
 CSV_DIR = Path("exported_csv")
 RUNS = [
-    ("Contractor Active 50k",   CSV_DIR / "contractoractive_neu_50k.csv"),
+    ("SimpleGNN", CSV_DIR / "contractoractive.csv"),
 ]
 
 OUTDIR = Path("figures_icmcis")
@@ -73,9 +73,9 @@ def plot_metric(
     linthresh: float = 1e-2,
 ):
     with plt.style.context(STYLE):
+        plt.rcParams["text.usetex"] = False
         fig, ax = plt.subplots(figsize=(6.0, 3.6))
 
-        # Keep consistent colors across plots
         prop_cycle = plt.rcParams["axes.prop_cycle"].by_key().get("color", None)
         color_map = {}
         if prop_cycle:
@@ -90,9 +90,7 @@ def plot_metric(
 
             c = color_map.get(scenario, None)
 
-            # raw (faint)
             ax.plot(x, y, alpha=0.25, linewidth=1.0, color=c)
-            # smoothed (bold)
             ax.plot(x, y_s, label=scenario, linewidth=2.2, color=c)
 
         ax.set_xlabel("Training Episodes")
@@ -174,6 +172,7 @@ EMA_ALPHA = 0.05
 # Combined side-by-side figure
 # ----------------------------
 with plt.style.context(STYLE):
+    plt.rcParams["text.usetex"] = False
     fig, (ax_r, ax_l) = plt.subplots(
         1, 2,
         figsize=FIGSIZE_ONECOL_SIDE,

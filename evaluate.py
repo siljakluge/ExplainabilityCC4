@@ -12,6 +12,7 @@ import shutil
 import argparse
 import os, time
 import re
+from time import perf_counter
 
 from CybORG import CybORG, CYBORG_VERSION
 from CybORG.Agents import SleepAgent, EnterpriseGreenAgent
@@ -90,7 +91,7 @@ For each run:
 Typical Usage
 -------------
 Single profile:
-    python evaluate.py --mode single --strategy single --single_profile stealth_pivot
+    python evaluate.py --mode single --strategy single --single_profile fsm_default
 
 Mixed evaluation:
     python evaluate.py --mode single --strategy mixture \
@@ -111,6 +112,9 @@ Author Context
 --------------
 Developed for Graph-based PPO MARL agents & heuristic agents in the
 CAGE Challenge 4 enterprise cyber defense setting.
+
+
+Runs:  python evaluate.py --mode sweep --model-name Baseline_50k_2 --eps-per-profile 100 --distribute 4 --submission-path . --seed 1337 --overwrite
 """
 
 EPISODE_LENGTH = 500
@@ -249,6 +253,7 @@ def evaluate_one_episode(
     max_eps: int,
     profile_name: str,
     write_to_file: bool,
+    show_progress: bool,
 ):
     # per-episode env seed (deterministisch)
     # falls base_seed None: trotzdem stabil via episode_idx
@@ -263,7 +268,10 @@ def evaluate_one_episode(
     a = []
     o = []
 
-    for _ in tqdm(range(EPISODE_LENGTH), desc=f"({episode_idx+1}/{max_eps}) {profile_name}", leave=False):
+    iterator = range(EPISODE_LENGTH)
+    if show_progress:
+        iterator = tqdm(iterator, desc=f"Episode {episode_idx + 1}/{max_eps} {profile_name}")
+    for _ in iterator:
         actions = {
             agent_name: agent.get_action(
                 observations[agent_name], wrapped_cyborg.action_space(agent_name)
@@ -360,6 +368,7 @@ def run_evaluation_parallel_profiles(
             max_eps=max_eps,
             profile_name=episode_profiles[i],
             write_to_file=write_to_file,
+            show_progress=False,
         )
         for i in range(max_eps)
     )
@@ -496,52 +505,71 @@ def run_profile_sweep(
         ensure_dir(model_dir)
 
     # ---- SINGLE PROFILE runs ----
-    profiles = sorted(PROFILE_REGISTRY.keys())
+    profiles = [p for p in sorted(PROFILE_REGISTRY.keys()) if p != "verbose"]
     print(f"[sweep] Model={model_name} profiles={profiles}")
 
-    for idx, prof in enumerate(profiles):
-        out_dir = model_dir / prof
-        ensure_dir(out_dir)
+    total_runs = len(profiles) + 1
+    pbar = tqdm(total=total_runs, desc="Sweep", unit="run", dynamic_ncols=True)
 
-        # make seed distinct per profile so you can reproduce exactly but avoid identical env streams
-        prof_seed = (seed if seed is not None else 0) + 10_000 * (idx + 1)
+    try:
+        for idx, prof in enumerate(profiles):
+            out_dir = model_dir / prof
+            ensure_dir(out_dir)
 
-        print(f"\n[sweep] Evaluating profile '{prof}' for {eps_per_profile} eps -> {out_dir}")
+            prof_seed = (seed if seed is not None else 0) + 10_000 * (idx + 1)
+
+            pbar.set_postfix_str(f"profile={prof}, eps={eps_per_profile}, workers={workers}")
+            t0 = perf_counter()
+
+            run_evaluation_parallel_profiles(
+                submission=submission,
+                log_path=str(out_dir),
+                max_eps=eps_per_profile,
+                write_to_file=write_to_file,
+                seed=prof_seed,
+                workers=workers,
+                strategy="single",
+                single_profile=prof,
+                profile_weights=None,
+                log_per_profile=True,
+            )
+
+            dt = perf_counter() - t0
+            pbar.write(f"[sweep] done profile='{prof}' in {dt / 60:.1f} min -> {out_dir}")
+            pbar.update(1)
+
+        # ---- MIXED run ----
+        mixed_dir = model_dir / "mixed"
+        ensure_dir(mixed_dir)
+
+        mixed_seed = (seed if seed is not None else 0) + 999_999
+        mixed_weights = parse_profile_weights(mixed_weights_str) if mixed_weights_str else {}
+
+        pbar.set_postfix_str(f"profile=mixed, eps={eps_per_profile}, workers={workers}")
+        t0 = perf_counter()
+
         run_evaluation_parallel_profiles(
             submission=submission,
-            log_path=str(out_dir),
+            log_path=str(mixed_dir),
             max_eps=eps_per_profile,
             write_to_file=write_to_file,
-            seed=prof_seed,
+            seed=mixed_seed,
             workers=workers,
-            strategy="single",
-            single_profile=prof,
-            profile_weights=None,
+            strategy="mixture",
+            single_profile="fsm_default",
+            profile_weights=mixed_weights,
             log_per_profile=True,
         )
 
-    # ---- MIXED run ----
-    mixed_dir = model_dir / "mixed"
-    ensure_dir(mixed_dir)
+        dt = perf_counter() - t0
+        pbar.write(f"[sweep] done profile='mixed' in {dt / 60:.1f} min -> {mixed_dir}")
+        pbar.update(1)
 
-    mixed_seed = (seed if seed is not None else 0) + 999_999
-    mixed_weights = parse_profile_weights(mixed_weights_str) if mixed_weights_str else {}
-
-    print(f"\n[sweep] Evaluating MIXED for {eps_per_profile} eps -> {mixed_dir}")
-    run_evaluation_parallel_profiles(
-        submission=submission,
-        log_path=str(mixed_dir),
-        max_eps=eps_per_profile,
-        write_to_file=write_to_file,
-        seed=mixed_seed,
-        workers=workers,
-        strategy="mixture",
-        single_profile="fsm_default",
-        profile_weights=mixed_weights,
-        log_per_profile=True,
-    )
+    finally:
+        pbar.close()
 
     print(f"\n[sweep] Done. Results under: {model_dir}")
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser("CybORG Evaluation Script")
@@ -634,3 +662,4 @@ if __name__ == "__main__":
             write_to_file=True,
             overwrite=args.overwrite,
         )
+

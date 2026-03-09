@@ -5,9 +5,7 @@ import pprint
 LOG_DIR = Path("logs")
 
 LOG_FILES = [
-    "contractoractive.pt",
-    "contractorinactive.pt",
-    "m1_contractorinactive.pt",
+    "exp_mix.pt"
 ]
 
 pp = pprint.PrettyPrinter(indent=2, width=120)

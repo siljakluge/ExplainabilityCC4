@@ -274,7 +274,7 @@ def run_explainability(
             reward_per_episode += sum(rewards_scalar.values())
 
             # for SHAP
-            if is_heuristic:
+            if is_heuristic & shap:
                 for agent_name, agent in submission.AGENTS.items():
                     if not hasattr(agent, "info") or len(agent.info) == 0:
                         continue
@@ -346,13 +346,13 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser("CybORG Reward Decomposition")
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--max-eps", type=int, default=50)
+    parser.add_argument("--max-eps", type=int, default=100)
     parser.add_argument("--episode-length", type=int, default=500)
-    parser.add_argument("--shap", type=bool, default=True)
+    parser.add_argument("--shap", type=bool, default=False)
     parser.add_argument("--rew-decomp", type=bool, default=True)
     parser.add_argument("--output", type=str, default=os.path.abspath("Results"))
     parser.add_argument("--submission-path", type=str, default=os.path.abspath(""))
-    parser.add_argument("--is-heuristic", type=bool, default=False)
+    parser.add_argument("--is-heuristic", type=bool, default=True)
     args = parser.parse_args()
 
     log_path = Path("reward_log.jsonl")
