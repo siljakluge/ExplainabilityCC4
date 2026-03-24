@@ -3,6 +3,23 @@ from CybORG.Shared.RewardCalculator import RewardCalculator
 from CybORG.Simulator.State import State
 from CybORG.Simulator.Actions.GreenActions import GreenAccessService, GreenLocalWork
 from CybORG.Simulator.Actions.AbstractActions.Impact import Impact
+try:
+    from CybORG.Simulator.Actions.AbstractActions.PrivilegeEscalate import PrivilegeEscalate
+except Exception:
+    PrivilegeEscalate = tuple()
+try:
+    from CybORG.Simulator.Actions.AbstractActions.Analyse import Analyse
+except Exception:
+    Analyse = tuple()
+try:
+    from CybORG.Simulator.Actions.AbstractActions.ExploitRemoteService import ExploitRemoteService
+except Exception:
+    ExploitRemoteService = tuple()
+
+try:
+    from CybORG.Simulator.Actions.AbstractActions.DegradeServices import DegradeServices
+except Exception:
+    DegradeServices = tuple()
 from CybORG.Simulator.Actions.Action import InvalidAction
 import json
 from pathlib import Path
@@ -19,11 +36,24 @@ class BlueRewardMachine(RewardCalculator):
     phase_rewards : Dict[str, Dict[str, int]]
         the reward mapping for the current mission phase
     """
-    def __init__(self, *args, **kwargs):
+    def __init__(
+        self,
+        *args,
+        reward_green=False,
+        reward_red=True,
+        reward_blue_actions=False,
+        phase_reward_mode="default",
+        **kwargs
+    ):
         super().__init__(*args, **kwargs)
+        self.reward_green = reward_green
+        self.reward_red = reward_red
+        self.reward_blue_actions = reward_blue_actions
+        self.phase_reward_mode = phase_reward_mode
+
         self._episode = 0
         self._step = 0
-        self._prev_time = None  # can be number or datetime
+        self._prev_time = None
 
     def get_phase_rewards(self, cur_mission_phase):
         """Gets the pre-set reward mapping for the current mission phase
@@ -43,39 +73,76 @@ class BlueRewardMachine(RewardCalculator):
         : Dict[str, Dict[str, int]]
             the phase reward mapping for the current mission phase
         """
-        phase_rewards = {
-            0:{
-                "public_access_zone_subnet":    {"LWF": -1, "ASF": -1, "RIA": -3}, # Part of HQ Network in ReadMe
-                "admin_network_subnet":         {"LWF": -1, "ASF": -1, "RIA": -3}, # Part of HQ Network in ReadMe
-                "office_network_subnet":        {"LWF": -1, "ASF": -1, "RIA": -3}, # Part of HQ Network in ReadMe
-                "contractor_network_subnet":    {"LWF":  0, "ASF": -5, "RIA": -5}, # {"LWF":  0, "ASF": -5, "RIA": -5}, {"LWF":  0, "ASF": 0, "RIA": 0},
-                "restricted_zone_a_subnet":     {"LWF": -1, "ASF": -3, "RIA": -1},
-                "operational_zone_a_subnet":    {"LWF": -1, "ASF": -1, "RIA": -1},
-                "restricted_zone_b_subnet":     {"LWF": -1, "ASF": -3, "RIA": -1},
-                "operational_zone_b_subnet":    {"LWF": -1, "ASF": -1, "RIA": -1},
-                "internet_subnet":              {"LWF":  0, "ASF":  0, "RIA": 0}},
-            1:{
-                "public_access_zone_subnet":    {"LWF": -1, "ASF": -1, "RIA": -3},
-                "admin_network_subnet":         {"LWF": -1, "ASF": -1, "RIA": -3},
-                "office_network_subnet":        {"LWF": -1, "ASF": -1, "RIA": -3},
-                "contractor_network_subnet":    {"LWF":  0, "ASF":  0, "RIA":  0},
-                "restricted_zone_a_subnet":     {"LWF": -2, "ASF": -1, "RIA": -3},
-                "operational_zone_a_subnet":    {"LWF":-10, "ASF":  0, "RIA":-10},
-                "restricted_zone_b_subnet":     {"LWF": -1, "ASF": -1, "RIA": -1},
-                "operational_zone_b_subnet":    {"LWF": -1, "ASF": -1, "RIA": -1},
-                "internet_subnet":              {"LWF":  0, "ASF":  0, "RIA": 0}}, 
-            2:{
-                "public_access_zone_subnet":    {"LWF": -1, "ASF": -1, "RIA": -3},
-                "admin_network_subnet":         {"LWF": -1, "ASF": -1, "RIA": -3},
-                "office_network_subnet":        {"LWF": -1, "ASF": -1, "RIA": -3},
-                "contractor_network_subnet":    {"LWF":  0, "ASF":  0, "RIA":  0},
-                "restricted_zone_a_subnet":     {"LWF": -1, "ASF": -3, "RIA": -3},
-                "operational_zone_a_subnet":    {"LWF": -1, "ASF": -1, "RIA": -1},
-                "restricted_zone_b_subnet":     {"LWF": -2, "ASF": -1, "RIA": -3},
-                "operational_zone_b_subnet":    {"LWF":-10, "ASF":  0, "RIA":-10},
-                "internet_subnet":              {"LWF":  0, "ASF":  0, "RIA":  0}}}
-        
-        return phase_rewards[cur_mission_phase]
+        default_rewards = {
+            0: {
+                "public_access_zone_subnet": {"LWF": -1, "ASF": -1, "RIA": -3},
+                "admin_network_subnet": {"LWF": -1, "ASF": -1, "RIA": -3},
+                "office_network_subnet": {"LWF": -1, "ASF": -1, "RIA": -3},
+                "contractor_network_subnet": {"LWF": 0, "ASF": -5, "RIA": -5},
+                "restricted_zone_a_subnet": {"LWF": -1, "ASF": -3, "RIA": -1},
+                "operational_zone_a_subnet": {"LWF": -1, "ASF": -1, "RIA": -1},
+                "restricted_zone_b_subnet": {"LWF": -1, "ASF": -3, "RIA": -1},
+                "operational_zone_b_subnet": {"LWF": -1, "ASF": -1, "RIA": -1},
+                "internet_subnet": {"LWF": 0, "ASF": 0, "RIA": 0}},
+            1: {
+                "public_access_zone_subnet": {"LWF": -1, "ASF": -1, "RIA": -3},
+                "admin_network_subnet": {"LWF": -1, "ASF": -1, "RIA": -3},
+                "office_network_subnet": {"LWF": -1, "ASF": -1, "RIA": -3},
+                "contractor_network_subnet": {"LWF": 0, "ASF": 0, "RIA": 0},
+                "restricted_zone_a_subnet": {"LWF": -2, "ASF": -1, "RIA": -3},
+                "operational_zone_a_subnet": {"LWF": -10, "ASF": 0, "RIA": -10},
+                "restricted_zone_b_subnet": {"LWF": -1, "ASF": -1, "RIA": -1},
+                "operational_zone_b_subnet": {"LWF": -1, "ASF": -1, "RIA": -1},
+                "internet_subnet": {"LWF": 0, "ASF": 0, "RIA": 0}},
+            2: {
+                "public_access_zone_subnet": {"LWF": -1, "ASF": -1, "RIA": -3},
+                "admin_network_subnet": {"LWF": -1, "ASF": -1, "RIA": -3},
+                "office_network_subnet": {"LWF": -1, "ASF": -1, "RIA": -3},
+                "contractor_network_subnet": {"LWF": 0, "ASF": 0, "RIA": 0},
+                "restricted_zone_a_subnet": {"LWF": -1, "ASF": -3, "RIA": -3},
+                "operational_zone_a_subnet": {"LWF": -1, "ASF": -1, "RIA": -1},
+                "restricted_zone_b_subnet": {"LWF": -2, "ASF": -1, "RIA": -3},
+                "operational_zone_b_subnet": {"LWF": -10, "ASF": 0, "RIA": -10},
+                "internet_subnet": {"LWF": 0, "ASF": 0, "RIA": 0}}
+        }
+
+        contractor_off = {
+            phase: {
+                subnet: values.copy()
+                for subnet, values in rewards.items()
+            }
+            for phase, rewards in default_rewards.items()
+        }
+
+        for phase in contractor_off:
+            contractor_off[phase]["contractor_network_subnet"] = {"LWF": 0, "ASF": 0, "RIA": 0}
+
+
+        red_only = {}
+
+        for phase, subnets in default_rewards.items():
+            red_only[phase] = {}
+
+            for subnet, values in subnets.items():
+                ria = values["RIA"]
+
+                red_only[phase][subnet] = {
+                    "LWF": 0,
+                    "ASF": 0,
+                    "RIA": ria,
+                    "EXP": ria * 0.7,
+                    "PRIV": ria * 0.8,
+                    "DEG": ria * 0.6,
+                }
+
+        modes = {
+            "default": default_rewards,
+            "contractor_off": contractor_off,
+            "red_only": red_only,
+        }
+
+        reward_table = modes[self.phase_reward_mode]
+        return reward_table[cur_mission_phase]
 
 
     def calculate_reward(self, current_state: dict, action_dict: dict, agent_observations: dict, done: bool, state: State):
@@ -101,7 +168,7 @@ class BlueRewardMachine(RewardCalculator):
         reward_list = []
         reward_summary = {
             "total": 0,
-            "subnet_rewards": defaultdict(lambda: {"LWF": 0, "ASF": 0, "RIA": 0})
+            "subnet_rewards": defaultdict(lambda: {"LWF": 0, "ASF": 0, "RIA": 0, "EXP": 0, "PRIV": 0, "DEG": 0}),
         }
         self.phase_rewards = self.get_phase_rewards(state.mission_phase)
 
@@ -134,7 +201,38 @@ class BlueRewardMachine(RewardCalculator):
                         reward_list.append(r)
                         reward_summary["subnet_rewards"][subnet_name]["ASF"] += r
 
-                elif 'red' in agent_name and success and isinstance(action, Impact):
+                elif self.reward_red and 'red' in agent_name and success and subnet_name is not None:
+
+                    rewards_for_zone = self.phase_rewards[subnet_name]
+
+                    if isinstance(action, Impact):
+                        r = rewards_for_zone["RIA"]
+                        reward_summary["subnet_rewards"][subnet_name]["RIA"] += r
+
+                    elif PrivilegeEscalate and isinstance(action, PrivilegeEscalate):
+                        r = rewards_for_zone["RIA"] * 0.7
+                        reward_summary["subnet_rewards"][subnet_name]["PRIV"] += r
+
+                    elif ExploitRemoteService and isinstance(action, ExploitRemoteService):
+                        r = rewards_for_zone["RIA"] * 0.8
+                        reward_summary["subnet_rewards"][subnet_name]["EXP"] += r
+
+                    elif DegradeServices and isinstance(action, DegradeServices):
+                        r = rewards_for_zone["RIA"] * 0.6
+                        reward_summary["subnet_rewards"][subnet_name]["DEG"] += r
+
+                    else:
+                        r = 0
+
+                elif 'blue' in agent_name and Analyse and isinstance(action, Analyse) and self.reward_blue_actions:
+
+                    r = 1.0
+                    reward_list.append(r)
+
+                    reward_summary["subnet_rewards"][subnet_name or "unknown"]["ANALYSE"] += r
+                    reward_summary["total"] += r
+
+                elif 'red' in agent_name and success and isinstance(action, Impact) and self.reward_red is not False:
                     r = rewards_for_zone['RIA']
                     reward_list.append(r)
                     reward_summary["subnet_rewards"][subnet_name]["RIA"] += r
@@ -173,6 +271,11 @@ class BlueRewardMachine(RewardCalculator):
 
             profile = os.environ.get("CYBORG_ATTACK_PROFILE", None)
             run_tag = os.environ.get("CYBORG_RUN_TAG", None)
+            mode = []
+            if self.reward_blue_actions:
+                mode.append("blue_analyse_reward")
+            if self.reward_red:
+                mode.append("red_only")
 
             # --- write entry ---
             log_entry = {
