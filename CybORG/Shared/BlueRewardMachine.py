@@ -47,7 +47,7 @@ class BlueRewardMachine(RewardCalculator):
     ):
         super().__init__(*args, **kwargs)
         self.phase_reward_mode = os.environ.get("CYBORG_PHASE_REWARD_MODE", "default")
-        self.reward_blue_actions = os.environ.get("CYBORG_REWARD_BLUE", "1") == "1"
+        self.reward_blue_actions = os.environ.get("CYBORG_REWARD_BLUE", "0") == "1"
 
         self._episode = 0
         self._step = 0
@@ -216,14 +216,17 @@ class BlueRewardMachine(RewardCalculator):
                     reward_summary["subnet_rewards"][subnet_name]["RIA"] += r
 
                 elif rew_mode == "red_only" and isinstance(action, PrivilegeEscalate):
+                    #print("Priv")
                     r = rewards_for_zone["PRIV"]
                     reward_summary["subnet_rewards"][subnet_name]["PRIV"] += r
 
                 elif rew_mode == "red_only" and isinstance(action, ExploitRemoteService):
+                    #print("Exploit")
                     r = rewards_for_zone["EXP"]
                     reward_summary["subnet_rewards"][subnet_name]["EXP"] += r
 
                 elif rew_mode == "red_only" and isinstance(action, DegradeServices):
+                    #print("Degrade")
                     r = rewards_for_zone["DEG"]
                     reward_summary["subnet_rewards"][subnet_name]["DEG"] += r
 

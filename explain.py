@@ -17,9 +17,9 @@ from CybORG import CybORG, CYBORG_VERSION
 from CybORG.Agents import SleepAgent, EnterpriseGreenAgent, FiniteStateRedAgent
 from CybORG.Simulator.Scenarios import EnterpriseScenarioGenerator
 
-from plot_actions import log_actions_jsonl
-from policy_shap_heuristic import train_surrogate_and_shap
-from shap_gnn import run_shap
+from plotting.plot_actions import log_actions_jsonl
+from SHAP.policy_shap_heuristic import train_surrogate_and_shap
+from SHAP.shap_gnn import run_shap
 
 
 # ----------------------------
@@ -297,7 +297,6 @@ def run_explainability_profiles(
     profile_weights: Optional[Dict[str, float]] = None,
 
     # plotting controls
-    rew_decomp: bool = True,
     include_mixed_in_sweep: bool = False,
 ):
     cyborg_version = CYBORG_VERSION
@@ -580,9 +579,6 @@ if __name__ == "__main__":
     parser.add_argument("--episode-length", type=int, default=500)
 
     parser.add_argument("--shap", action="store_true")
-    parser.add_argument("--rew-decomp", action="store_true")
-    parser.add_argument("--no-rew-decomp", dest="rew_decomp", action="store_false")
-    parser.set_defaults(rew_decomp=True)
 
     parser.add_argument("--output", type=str, default=os.path.abspath("Results"))
     parser.add_argument("--submission-path", type=str, default=os.path.abspath(""))
@@ -590,6 +586,9 @@ if __name__ == "__main__":
     parser.add_argument("--is-heuristic", action="store_true")
     parser.add_argument("--non-heuristic", dest="is_heuristic", action="store_false")
     parser.set_defaults(is_heuristic=False)
+    parser.add_argument("--phase_reward_mode", default="default",
+                    choices=["default", "contractor_off", "red_only"])
+    parser.add_argument("--reward_blue", action="store_true")
 
     # profile control
     parser.add_argument("--mode", choices=["single", "sweep"], default="sweep")
@@ -599,6 +598,8 @@ if __name__ == "__main__":
     parser.add_argument("--include-mixed-in-sweep", action="store_true")
 
     args = parser.parse_args()
+    os.environ["CYBORG_PHASE_REWARD_MODE"] = args.phase_reward_mode
+    os.environ["CYBORG_REWARD_BLUE"] = "1" if args.reward_blue else "0"
 
     submission = load_submission(args.submission_path)
     if isinstance(submission, type):
@@ -624,15 +625,14 @@ if __name__ == "__main__":
         strategy=args.strategy,
         single_profile=args.single_profile,
         profile_weights=weights,
-        rew_decomp=args.rew_decomp,
         include_mixed_in_sweep=args.include_mixed_in_sweep,
     )
 
     """python explain.py \
   --mode sweep \
-  --max-eps 100 \
-  --episode-length 500 \
+  --max-eps 10 \
+  --episode-length 100 \
   --non-heuristic \
   --seed 1337 \
-  --no-rew-decomp \
+  --phase_reward_mode red_only \
   --submission-path ."""
