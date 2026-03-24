@@ -16,6 +16,8 @@ try:
 except Exception:
     HAS_SCIENCEPLOTS = False
 
+BASE_DIR = Path(__file__).resolve().parent.parent  # geht von plotting/ eine Ebene hoch
+RESULTS_DIR = BASE_DIR / "Result"
 
 # -----------------------
 # Action label + colors
@@ -566,7 +568,7 @@ def plot_action_frequencies_multiple_models(
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out_dir", type=str, default="Result/ActionPlots")
+    ap.add_argument("--out_dir", type=str, default="Plots/ActionPlots")
     ap.add_argument("--normalize", type=bool, default=True)
     ap.add_argument("--top_k", type=int, default=25)
     ap.add_argument(
@@ -580,9 +582,10 @@ def main():
     top_k = None if args.top_k == -1 else args.top_k
     attackers = [a.strip() for a in args.attackers.split(",") if a.strip()]
 
+
     model_dirs = {
-        "Heuristic": Path("Result/Heuristic"),
-        "SimpleGNN": Path("Result/SimpleGNN"),
+        "Heuristic": RESULTS_DIR / "Heuristic",
+        "SimpleGNN": RESULTS_DIR / "SimpleGNN",
     }
 
     res = plot_action_frequencies_multiple_models(

@@ -32,12 +32,13 @@ ATTACKER_ORDER = [
     "lateral_spread",
     "stealth_pivot",
 ]
-
+BASE_DIR = Path(__file__).resolve().parent.parent  # geht von plotting/ eine Ebene hoch
+RESULTS_DIR = BASE_DIR / "Result"
 MODEL_DIRS_DEFAULT = {
-    "SimpleGNN": Path("Result/SimpleGNN"),
-    "Heuristic": Path("Result/Heuristic"),
-    "RedVariants": Path("Result/RedVariants"),
-    "Sleep": Path("Result/Sleep"),
+    "SimpleGNN": RESULTS_DIR / "SimpleGNN",
+    "Heuristic": RESULTS_DIR / "Heuristic",
+    "RedVariants": RESULTS_DIR / "RedVariants",
+    "Sleep": RESULTS_DIR / "Sleep",
 }
 
 OKABE_ITO = [
@@ -344,6 +345,7 @@ def plot_model_attacker_lines(
     out_dir: Path,
     attackers: Optional[list[str]] = None,
     avg: bool = True,
+    show_legend: bool = False,
 ):
     if attackers is None:
         attackers = ATTACKER_ORDER
@@ -410,20 +412,21 @@ def plot_model_attacker_lines(
         ax.set_xticklabels(pretty_labels, rotation=25, ha="right", fontsize=9)
 
         _apply_common_axes_style(ax, y_label="Avg Reward" if avg else "Cumulative Reward")
+        ax.set_title(model_name, fontsize=12, fontweight="bold")
 
         if "sleep" in model_name.lower():
             ax.set_yticks([0, -1000, -2000, -3000])
         else:
-            ax.set_yticks([0, -100, -200, -300, -400])
+            ax.set_yticks([0, -50, -100, -150])
 
-        ax.legend(
-            loc="upper center",
-            bbox_to_anchor=(0.5, 1.05),
-            ncol=len(ATTACKER_ORDER),  # eine Zeile
-            frameon=True,
-            columnspacing=1.0,
-            handlelength=1.6,
-        )
+        if show_legend:
+            ax.legend(
+                loc="lower right",
+                frameon=True,
+                fontsize=10,
+                handlelength=1.5,
+                borderpad=0.4,
+            )
 
         stem = f"{model_name}_reward_decomposition_lines_{'avg' if avg else 'sum'}"
         return _save_fig(fig, out_dir, stem)
@@ -582,7 +585,7 @@ def plot_all_models_2x2(
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", type=Path, default=Path("Result/RewardDecomp/reward_decomp_plots"))
+    ap.add_argument("--out", type=Path, default=Path("Plots/RewardDecomp"))
     ap.add_argument("--sum", action="store_true")
     args = ap.parse_args()
 
@@ -605,12 +608,7 @@ def main():
     for p in saved:
         print(f" - {p}")
 
-    model_dirs = {
-        "SimpleGNN": Path("Result/SimpleGNN"),
-        "RedVariants": Path("Result/RedVariants"),
-        "Heuristic": Path("Result/Heuristic"),
-        "Sleep": Path("Result/Sleep"),  # Beispiel
-    }
+    model_dirs = MODEL_DIRS_DEFAULT
 
     out = plot_all_models_2x2(
         model_dirs=model_dirs,

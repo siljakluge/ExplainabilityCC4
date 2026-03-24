@@ -7,8 +7,8 @@ import numpy as np
 # --------------------------------------------------
 # Configuration
 # --------------------------------------------------
-
-RESULTS_DIR = Path("Result")
+BASE_DIR = Path(__file__).resolve().parent.parent  # geht von plotting/ eine Ebene hoch
+RESULTS_DIR = BASE_DIR / "Result"
 
 MODELS = [
     "Heuristic",

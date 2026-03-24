@@ -15,7 +15,7 @@ import os
 from CybORG import CybORG
 from CybORG.Agents import BaseAgent, SleepAgent
 from CybORG.Agents.Wrappers import BlueFixedActionWrapper
-from heuristic_wrapper import HeuristicWrapper
+from wrappers.heuristic_wrapper import HeuristicWrapper
 from wrappers.graph_wrapper import GraphWrapper
 
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
@@ -24,7 +24,7 @@ from models.cage4 import load
 from wrappers.graph_wrapper import GraphWrapper
 
 ### Import custom agents here ###
-from Heuristic_Agent_v0_3 import H_Agent
+from Heuristic.Heuristic_Agent_v0_3 import H_Agent
 """
 class Submission:
 

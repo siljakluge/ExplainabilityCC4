@@ -588,7 +588,7 @@ if __name__ == "__main__":
     parser.add_argument("--submission-path", type=str, default=os.path.abspath(""))
 
     parser.add_argument("--is-heuristic", action="store_true")
-    parser.add_argument("--no-heuristic", dest="is_heuristic", action="store_false")
+    parser.add_argument("--non-heuristic", dest="is_heuristic", action="store_false")
     parser.set_defaults(is_heuristic=False)
 
     # profile control
@@ -605,7 +605,7 @@ if __name__ == "__main__":
         submission = submission()
 
     os.makedirs(args.output, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    ts = datetime.now().strftime("%Y%m%d-%H%M")
     agent_type = submission.NAME
     run_dir = os.path.join(args.output, f"{agent_type}_{ts}")
     rmkdir(run_dir)
@@ -632,7 +632,7 @@ if __name__ == "__main__":
   --mode sweep \
   --max-eps 100 \
   --episode-length 500 \
-  --no-heuristic \
+  --non-heuristic \
   --seed 1337 \
   --no-rew-decomp \
   --submission-path ."""

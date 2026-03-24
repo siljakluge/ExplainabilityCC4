@@ -8,13 +8,16 @@ import scienceplots  # noqa: F401
 # ----------------------------
 # Inputs
 # ----------------------------
-CSV_DIR = Path("exported_csv")
+
+BASE_DIR = Path(__file__).resolve().parent.parent  # geht von plotting/ eine Ebene hoch
+CSV_DIR = BASE_DIR / "exported_csv"
+
 RUNS = [
     ("SimpleGNN", CSV_DIR / "contractoractive.csv"),
 ]
 
-OUTDIR = Path("figures_icmcis")
-OUTDIR.mkdir(parents=True, exist_ok=True)
+OUTDIR = Path("Plots/trainingCurves")
+OUTDIR.mkdir(parents=False, exist_ok=True)
 
 # ----------------------------
 # Smoothing
@@ -223,6 +226,6 @@ with plt.style.context(STYLE):
 #    ax_l.set_title("Loss")
 
     fig.tight_layout(pad=0.35)
-    fig.savefig(OUTDIR / "training_curves_onecolumn_sidebyside.pdf")
+    fig.savefig(OUTDIR / "training_curves.pdf")
     plt.close(fig)
 

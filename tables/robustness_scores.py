@@ -7,7 +7,8 @@ import pandas as pd
 # --------------------------------------------------
 # Configuration
 # --------------------------------------------------
-RESULTS_DIR = Path("Result")
+BASE_DIR = Path(__file__).resolve().parent.parent  # geht von plotting/ eine Ebene hoch
+RESULTS_DIR = BASE_DIR / "Result"
 
 MODELS = [
     "Heuristic",
@@ -31,8 +32,11 @@ LAMBDA_2 = 1.0
 # If True, recompute mean/std from per_episode.
 # This is usually the safest option for consistency.
 RECOMPUTE_FROM_EPISODES = True
-OUT_CSV = Path("Result/Robustness/robustness_scores.csv")
-OUT_JSON = Path("Result/Robustness/robustness_scores.json")
+OUT_CSV = Path("Robustness/robustness_scores.csv")
+OUT_JSON = Path("Robustness/robustness_scores.json")
+
+OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
+OUT_JSON.parent.mkdir(parents=True, exist_ok=True)
 
 
 # --------------------------------------------------

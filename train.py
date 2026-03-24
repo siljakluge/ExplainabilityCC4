@@ -114,7 +114,7 @@ def _safe_import_profiles():
 
     try:
         # If you placed new profiles into RedAgents.py
-        from RedAgents import (
+        from CybORG.Agents.RedAgents import (
             DiscoveryFSRed,
             VerboseFSRed,
             StealthPivotFSRed,
@@ -450,6 +450,7 @@ if __name__ == "__main__":
     ap.add_argument("--hidden", type=int, default=256)
     ap.add_argument("--embedding", type=int, default=128)
     ap.add_argument("--debug", action="store_true", help="Small safe config")
+    ap.add_argument("--KIServer", action="store_true", help="Server Config")
 
     ap.add_argument(
         "--strategy",
@@ -496,6 +497,14 @@ if __name__ == "__main__":
         HP.episode_len = 100
         HP.training_episodes = 1000
         HP.epochs = 2
+
+    if args.KIServer:
+        HP.N = 10
+        HP.workers = 12
+        HP.bs = 1500
+        HP.episode_len = 500
+        HP.training_episodes = 5000
+        HP.epochs = 4
 
     # Create agents
     agents = [
