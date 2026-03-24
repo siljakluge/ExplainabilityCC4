@@ -13,7 +13,7 @@ Main Contents:
 import os
 
 from CybORG import CybORG
-from CybORG.Agents import BaseAgent
+from CybORG.Agents import BaseAgent, SleepAgent
 from CybORG.Agents.Wrappers import BlueFixedActionWrapper
 from heuristic_wrapper import HeuristicWrapper
 from wrappers.graph_wrapper import GraphWrapper
@@ -23,11 +23,9 @@ from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from models.cage4 import load
 from wrappers.graph_wrapper import GraphWrapper
 
-
-"""
 ### Import custom agents here ###
 from Heuristic_Agent_v0_3 import H_Agent
-
+"""
 class Submission:
 
     # Submission name
@@ -51,9 +49,10 @@ class Submission:
         return HeuristicWrapper(env)
         #return BlueFixedActionWrapper(env)
 
+
 """
 class Submission:
-    NAME = "RL_contractor_active_50k"
+    NAME = "RedVariants"
     TEAM = "Team.KI"
     TECHNIQUE = "Graph-based PPO With Intra-agent Communication"
 
@@ -69,3 +68,22 @@ class Submission:
     @staticmethod
     def wrap(env):
         return GraphWrapper(env)
+    
+"""
+class Submission:
+    NAME = "Sleep"
+    TEAM = "Team.KI"
+    TECHNIQUE = "Sleep Agent"
+
+    def __init__(self):
+        self.AGENTS = {
+            f"blue_agent_{i}": SleepAgent(agent_name=f"blue_agent_{i}")
+            for i in range(5)
+        }
+
+    # Use this function to optionally wrap CybORG with your custom wrapper(s).
+    @staticmethod
+    def wrap(env: CybORG) -> MultiAgentEnv:
+        return BlueFixedActionWrapper(env)
+        #return BlueFixedActionWrapper(env)
+"""

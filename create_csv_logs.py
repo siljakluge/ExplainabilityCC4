@@ -110,7 +110,7 @@ def main() -> None:
     ap.add_argument(
         "--logs",
         nargs="+",
-        default=["logs/contractoractive_neu_50k.pt"],
+        default=["logs/exp_mix.pt"],
         help="Paths to .pt log files, e.g. logs/contractoractive.pt",
     )
 

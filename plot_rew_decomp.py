@@ -1,726 +1,628 @@
-#   python plot_reward_decomposition.py --log reward_log.jsonl --out reward_plots --episode 0
+from __future__ import annotations
 
-import argparse, json
+import argparse
+import json
 from pathlib import Path
+from typing import Optional
+
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from skimage.color.rgb_colors import black
-import numpy as np
+import scienceplots
+"""The OG Script"""
 
-COMPONENT_NAME_MAP = {
-    "LWF": "Local Work Failure",
-    "ASF": "Access Service Failure",
-    "RIA": "Red Impact Access",
+SUBNET_LABEL_MAP = {
+    "admin_network_subnet": "Admin",
+    "contractor_network_subnet": "Contractor",
+    "office_network_subnet": "Office",
+    "operational_zone_a_subnet": "Operational A",
+    "operational_zone_b_subnet": "Operational B",
+    "public_access_zone_subnet": "Public",
+    "restricted_zone_a_subnet": "Restricted A",
+    "restricted_zone_b_subnet": "Restricted B",
+    "internet_subnet": "Internet",
+    "action_cost": "Action Cost",
 }
 
-def parse_log(log_path: Path):
-    episode = None
-    step = None
-    reward_rows = []
-    total_rows = []
-    action_cost_rows = []
+ATTACKER_ORDER = [
+    "deception_aware",
+    "discovery",
+    "fsm_default",
+    "impact_rush",
+    "lateral_spread",
+    "stealth_pivot",
+]
 
-    with log_path.open() as f:
-        for raw in f:
-            line = raw.strip()
+MODEL_DIRS_DEFAULT = {
+    "SimpleGNN": Path("Result/SimpleGNN"),
+    "Heuristic": Path("Result/Heuristic"),
+    "RedVariants": Path("Result/RedVariants"),
+    "Sleep": Path("Result/Sleep"),
+}
+
+OKABE_ITO = [
+    "#0072B2",
+    "#E69F00",
+    "#009E73",
+    "#D55E00",
+    "#CC79A7",
+    "#56B4E9",
+    "#F0E442",
+    "#000000",
+]
+
+SUBNET_ORDER = [
+    "operational_zone_a_subnet",
+    "operational_zone_b_subnet",
+    "restricted_zone_a_subnet",
+    "restricted_zone_b_subnet",
+    "contractor_network_subnet",
+    "admin_network_subnet",
+    "office_network_subnet",
+    "public_access_zone_subnet",
+    "internet_subnet",
+    "action_cost",
+]
+
+
+def _style_rcparams():
+    plt.rcParams.update(
+        {
+            "figure.dpi": 200,
+            "savefig.dpi": 600,
+            "font.size": 11,
+            "axes.labelsize": 12,
+            "xtick.labelsize": 11,
+            "ytick.labelsize": 11,
+            "legend.fontsize": 10,
+            "legend.title_fontsize": 10,
+            "axes.linewidth": 1.0,
+            "xtick.major.width": 1.0,
+            "ytick.major.width": 1.0,
+            "legend.frameon": True,
+            "legend.framealpha": 0.95,
+            "legend.borderpad": 0.3,
+        }
+    )
+
+
+def _save_fig(fig: plt.Figure, out_dir: Path, stem: str) -> Path:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_png = out_dir / f"{stem}.png"
+    out_pdf = out_dir / f"{stem}.pdf"
+    fig.savefig(out_png, bbox_inches="tight", pad_inches=0.03)
+    fig.savefig(out_pdf, bbox_inches="tight", pad_inches=0.03)
+    plt.close(fig)
+    return out_png
+
+
+def _apply_common_axes_style(ax: plt.Axes, y_label: str):
+    ax.set_xlabel("Subnet")
+    ax.set_ylabel(y_label)
+    ax.grid(axis="y", alpha=0.25, zorder=0)
+    ax.axhline(0.0, linewidth=1.2, color="black", zorder=3)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.tick_params(axis="x", rotation=25)
+    ax.tick_params(axis="y", labelsize=11)
+
+
+def reconstruct_episode_from_steps(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Reconstruct episode ids when broken logging always wrote episode=0.
+    Assumes rows are in logging order and each new episode starts when step decreases.
+    """
+    if df.empty:
+        return df
+
+    df = df.copy().reset_index(drop=True)
+    episodes = []
+    cur_ep = 0
+    prev_step = None
+
+    for step in df["step"].tolist():
+        if prev_step is not None and step < prev_step:
+            cur_ep += 1
+        episodes.append(cur_ep)
+        prev_step = step
+
+    df["episode_recon"] = episodes
+    return df
+
+
+def read_jsonl(path: Path) -> list[dict]:
+    rows = []
+    if not path.exists():
+        return rows
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
             if not line:
                 continue
             try:
-                obj = json.loads(line)
+                rows.append(json.loads(line))
             except json.JSONDecodeError:
                 continue
+    return rows
 
-            if "episode" in obj and "step" in obj and len(obj) == 2:
-                episode = obj["episode"]
-                step = obj["step"]
-                continue
 
-            if "phase" in obj and "reward_list" in obj and "total" in obj:
-                phase = obj["phase"]
-                total_rows.append({"episode": episode, "step": step, "phase": phase, "total": obj["total"]})
-                for subnet, compdict in obj.get("reward_list", {}).items():
-                    for comp_abbrev, val in compdict.items():
-                        comp_full = COMPONENT_NAME_MAP.get(comp_abbrev, comp_abbrev)
-                        reward_rows.append({
-                            "episode": episode,
-                            "step": step,
-                            "phase": phase,
-                            "subnet": subnet,
-                            "component": comp_full,
-                            "value": val
-                        })
-                continue
+def parse_reward_log(log_path: Path) -> pd.DataFrame:
+    """
+    Output columns:
+      profile, step, phase, subnet, value, reward_total
+    """
+    rows = []
+    entries = read_jsonl(log_path)
 
-            if "agent" in obj and "action cost" in obj:
-                action_cost_rows.append({
-                    "episode": episode,
+    for obj in entries:
+        if not {"phase", "reward_list", "total", "step"}.issubset(obj.keys()):
+            continue
+
+        profile = obj.get("profile")
+        step = int(obj["step"])
+        phase = obj["phase"]
+        reward_total = float(obj.get("total", 0.0))
+        reward_list = obj.get("reward_list", {})
+
+        # even if reward_list is empty, keep total row implicit via join later
+        if reward_list:
+            for subnet, compdict in reward_list.items():
+                subnet_val = 0.0
+                for _comp, val in compdict.items():
+                    subnet_val += float(val)
+                rows.append(
+                    {
+                        "profile": profile,
+                        "step": step,
+                        "phase": phase,
+                        "subnet": subnet,
+                        "value": subnet_val,
+                        "reward_total": reward_total,
+                    }
+                )
+        else:
+            rows.append(
+                {
+                    "profile": profile,
                     "step": step,
-                    "agent": obj["agent"],
-                    "action_cost": obj["action cost"],
-                })
-
-    df_rewards = pd.DataFrame(reward_rows, columns=["episode", "step","phase", "subnet", "component", "value"])
-    df_total = pd.DataFrame(total_rows, columns=["episode", "step", "phase", "total"]).drop_duplicates()
-    df_acost = pd.DataFrame(action_cost_rows, columns=["episode", "step", "agent", "action_cost"])
-    return df_rewards, df_total, df_acost
-
-def plot_action_cost_by_agent(df_acost: pd.DataFrame, out_dir: Path):
-    if df_acost.empty:
-        return None
-    # Order by (episode, step), then pivot to agent series
-    df = df_acost.sort_values(["episode", "step"]).reset_index(drop=True)
-    x_pairs = list(zip(df["episode"], df["step"]))
-    # Create a canonical x index: one point per (episode, step) pair in order
-    # We need a continuous x over unique (episode, step)
-    unique_pairs = sorted(set(x_pairs))
-    x_index = {pair: i for i, pair in enumerate(unique_pairs)}
-    df["x"] = df[["episode", "step"]].apply(tuple, axis=1).map(x_index)
-
-    # Pivot to get one column per agent; sum if multiple rows exist
-    pivot = (
-        df.groupby(["x", "agent"])["action_cost"]
-        .sum()
-        .reset_index()
-        .pivot_table(index="x", columns="agent", values="action_cost", fill_value=0)
-        .sort_index()
-    )
-
-    plt.figure()
-    ax = plt.gca()
-    # one line per agent (default matplotlib colors; no styles specified)
-    for agent in pivot.columns:
-        plt.plot(pivot.index.values, pivot[agent].values, label=agent)
-    # Episode vlines
-    _add_episode_vlines(ax, unique_pairs)
-    plt.title("Action Cost per Step by Agent")
-    plt.xlim(0, len(unique_pairs))
-    plt.xlabel("Step index (ordered by episode, step)")
-    plt.ylabel("Action cost")
-    plt.legend(title="Agent")
-    out = out_dir / "action_cost_per_step_by_agent.png"
-    plt.savefig(out, bbox_inches="tight")
-    plt.close()
-    return out
-
-def _episode_boundaries(sorted_pairs):
-    boundaries = []
-    prev_ep = None
-    for i, (ep, _st) in enumerate(sorted_pairs):
-        if i == 0:
-            prev_ep = ep
-            continue
-        if ep != prev_ep:
-            boundaries.append(i)
-            prev_ep = ep
-    return boundaries
-
-def _add_episode_vlines(ax, sorted_pairs):
-    for pos in _episode_boundaries(sorted_pairs):
-        ax.axvline(pos - 0.5, color=black)
-
-def plot_total(df_total: pd.DataFrame, out_dir: Path):
-    if df_total.empty:
-        return None
-    df_total = df_total.sort_values(["episode", "step"]).reset_index(drop=True)
-    x_pairs = list(zip(df_total["episode"], df_total["step"]))
-    x = range(len(df_total))
-    y = df_total["total"].values
-
-    plt.figure(figsize=(20, 8))
-    ax = plt.gca()
-    plt.plot(x, y)
-    _add_episode_vlines(ax, x_pairs)
-    plt.title("Total Reward per Step")
-    plt.xlabel("Step index (ordered by episode, step)")
-    plt.ylabel("Total reward")
-    out = out_dir / "total_reward_per_step.png"
-    plt.savefig(out, bbox_inches="tight")
-    plt.close()
-    return out
-
-def plot_components_by_phase(df_rewards: pd.DataFrame,
-                             df_total: pd.DataFrame,
-                             df_acost: pd.DataFrame,
-                             out_dir: Path,
-                             avg: bool = True):
-    """
-    Stacked bar chart of reward per phase and component + Action Cost.
-    If avg=True: plot the *mean per episode* (episode totals averaged within each phase).
-    If avg=False: plot the *cumulative* sum over all episodes.
-    """
-    if df_rewards.empty and df_acost.empty:
-        return None
-
-    # ---- 1. Reward components per phase ----
-    if not df_rewards.empty:
-        if avg:
-            # sum within (episode, phase, component) then mean across episodes for each (phase, component)
-            rewards_phase_comp = (
-                df_rewards.groupby(["episode", "phase", "component"])["value"]
-                .sum()
-                .groupby(["phase", "component"])
-                .mean()
-                .reset_index()
-            )
-        else:
-            rewards_phase_comp = (
-                df_rewards.groupby(["phase", "component"])["value"]
-                .sum()
-                .reset_index()
+                    "phase": phase,
+                    "subnet": None,
+                    "value": 0.0,
+                    "reward_total": reward_total,
+                }
             )
 
-        pivot_rewards = rewards_phase_comp.pivot_table(
-            index="phase",
-            columns="component",
-            values="value",
-            fill_value=0.0,
-        )
-    else:
-        pivot_rewards = pd.DataFrame()
+    df = pd.DataFrame(rows, columns=["profile", "step", "phase", "subnet", "value", "reward_total"])
+    if df.empty:
+        return df
 
-    # ---- 2. Action Cost per phase (attach phase via df_total) ----
-    if not df_acost.empty and not df_total.empty:
-        df_acost_phase = df_acost.merge(
-            df_total[["episode", "step", "phase"]],
-            on=["episode", "step"],
-            how="left",
-        ).dropna(subset=["phase"])
+    df = reconstruct_episode_from_steps(df)
+    return df
 
-        if not df_acost_phase.empty:
-            df_acost_phase["phase"] = df_acost_phase["phase"].astype(int)
 
-            if avg:
-                # sum within (episode, phase) then mean across episodes for each phase
-                acost_phase = (
-                    df_acost_phase.groupby(["episode", "phase"])["action_cost"]
-                    .sum()
-                    .groupby("phase")
-                    .mean()
-                    .reset_index()
-                    .rename(columns={"action_cost": "Action Cost"})
-                )
-            else:
-                acost_phase = (
-                    df_acost_phase.groupby("phase")["action_cost"]
-                    .sum()
-                    .reset_index()
-                    .rename(columns={"action_cost": "Action Cost"})
-                )
-
-            pivot_acost = acost_phase.set_index("phase")
-        else:
-            pivot_acost = pd.DataFrame()
-    else:
-        pivot_acost = pd.DataFrame()
-
-    # ---- 3. Merge rewards + action cost ----
-    if not pivot_rewards.empty and not pivot_acost.empty:
-        pivot = pivot_rewards.join(pivot_acost, how="outer").fillna(0.0)
-    elif not pivot_rewards.empty:
-        pivot = pivot_rewards.copy()
-    elif not pivot_acost.empty:
-        pivot = pivot_acost.copy()
-    else:
-        return None
-
-    pivot = pivot.sort_index()
-
-    # ---- 4. Plot ----
-    phases = list(pivot.index)
-    x = np.arange(len(phases))
-
-    width = max(8, len(phases) * 1.2)
-    fig, ax = plt.subplots(figsize=(width, 6))
-
-    bottom = np.zeros(len(phases))
-    cols = list(pivot.columns)
-
-    for comp in cols:
-        vals = pivot[comp].to_numpy()
-        ax.bar(x, vals, bottom=bottom, label=comp)
-        bottom = bottom + vals
-
-    if avg:
-        ax.set_title("Average Reward by Phase (Including Action Cost)")
-        ax.set_ylabel("Mean Reward")
-    else:
-        ax.set_title("Cumulative Reward by Phase (Including Action Cost)")
-        ax.set_ylabel("Cumulative Reward")
-
-    ax.set_xlabel("Phase")
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(phases)
-
-    ax.legend(title="Component", bbox_to_anchor=(1.05, 1), loc="upper left")
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / "stacked_components_by_phase.png"
-    fig.tight_layout()
-    fig.savefig(out, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    return out
-
-def plot_components_by_subnet_per_phase(df_rewards: pd.DataFrame,
-                                        out_dir: Path,
-                                        avg: bool = True):
+def parse_scalar_log(log_path: Path) -> pd.DataFrame:
     """
-    For each phase, create a stacked bar chart:
-      x-axis: subnet
-      y-axis: cumulative reward (avg=False) OR mean per episode (avg=True)
-      bars: stacked by component.
-
-    Saves one PNG per phase in out_dir.
+    Output columns:
+      profile, step, total_scalar
+    Supports either:
+      {"rewards": -5}
+    or
+      {"total_scalar": -5}
     """
-    if df_rewards.empty or "phase" not in df_rewards.columns:
-        return {}
+    rows = []
+    entries = read_jsonl(log_path)
 
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    outputs = {}
-
-    for phase in sorted(df_rewards["phase"].dropna().unique()):
-        df_p = df_rewards[df_rewards["phase"] == phase].copy()
-        if df_p.empty:
+    for obj in entries:
+        if "step" not in obj:
             continue
 
-        if avg:
-            # sum within (episode, subnet, component) then mean across episodes
-            agg = (
-                df_p.groupby(["episode", "subnet", "component"])["value"]
-                .sum()
-                .groupby(["subnet", "component"])
-                .mean()
-                .reset_index()
-            )
-        else:
-            agg = (
-                df_p.groupby(["subnet", "component"])["value"]
-                .sum()
-                .reset_index()
-            )
+        total_scalar = None
+        if "total_scalar" in obj:
+            total_scalar = float(obj["total_scalar"])
+        elif "rewards" in obj:
+            total_scalar = float(obj["rewards"])
 
-        pivot = (
-            agg.pivot_table(
-                index="subnet",
-                columns="component",
-                values="value",
-                fill_value=0.0,
-            )
-            .sort_index()
-        )
-
-        if pivot.empty:
+        if total_scalar is None:
             continue
 
-        subnets = list(pivot.index)
-        x = np.arange(len(subnets))
-
-        width = max(8, len(subnets) * 1.2)
-        fig, ax = plt.subplots(figsize=(width, 6))
-
-        bottom = np.zeros(len(subnets))
-        cols = list(pivot.columns)
-
-        for comp in cols:
-            vals = pivot[comp].to_numpy()
-            ax.bar(x, vals, bottom=bottom, label=comp)
-            bottom = bottom + vals
-
-        y_label = "Avg Reward per Episode" if avg else "Cumulative Reward"
-        ax.set_title(f"{y_label} by Subnet and Component (Phase {phase})")
-        ax.set_xlabel("Subnet")
-        ax.set_ylabel(y_label)
-
-        ax.set_xticks(x)
-        ax.set_xticklabels(subnets, rotation=45, ha="right")
-
-        ax.legend(title="Component", bbox_to_anchor=(1.05, 1), loc="upper left")
-
-        out_path = out_dir / f"stacked_components_by_subnet_phase_{phase}_{'avg' if avg else 'sum'}.png"
-        fig.tight_layout()
-        fig.savefig(out_path, dpi=150, bbox_inches="tight")
-        plt.close(fig)
-
-        outputs[phase] = out_path
-
-    return outputs
-
-
-def plot_phase_stacked(df_rewards: pd.DataFrame,
-                       df_total: pd.DataFrame,
-                       phase: int,
-                       out_dir: Path):
-    """
-    For a given phase:
-      - x-axis: steps ordered by (episode, step) where phase==phase
-      - stacked bars: reward components (summed across subnets) per step
-      - vertical dashed lines: episode boundaries
-      Steps belonging to other phases are fully truncated.
-    """
-    # --- get the timeline of this phase from df_total ---
-    df_t = df_total[df_total["phase"] == phase].copy()
-    if df_t.empty:
-        print(f"[plot_phase_stacked] No steps for phase {phase}, skipping.")
-        return None
-
-    df_t = df_t.sort_values(["episode", "step"])
-    # canonical index: all (episode, step) pairs that are in this phase
-    idx = df_t[["episode", "step"]].drop_duplicates()
-    ep_step_index = list(map(tuple, idx.to_numpy()))   # [(ep, step), ...]
-
-    # --- aggregate rewards for this phase & align with that index ---
-    df_r = df_rewards[df_rewards["phase"] == phase].copy()
-
-    pivot = (
-        df_r.groupby(["episode", "step", "component"])["value"]
-            .sum()
-            .reset_index()
-            .pivot_table(
-                index=["episode", "step"],
-                columns="component",
-                values="value",
-                fill_value=0,
-            )
-    )
-
-    # reindex: this is where truncation happens:
-    # only (episode, step) pairs that have phase==phase survive
-    pivot = pivot.reindex(ep_step_index, fill_value=0)
-
-    x_positions = np.arange(len(pivot))
-
-    ticks = []
-    tick_labels = []
-    prev_ep = None
-    for i, (ep, st) in enumerate(ep_step_index):
-        if ep != prev_ep and not np.isnan(ep):
-            ticks.append(i)
-            episode = round(ep)
-            step = round(st)
-            tick_labels.append(f"episode {episode}, step {step}")
-            prev_ep = ep
-
-        if st % 10 == 0:
-            ticks.append(i)
-            step = round(st)
-            tick_labels.append(f"step {step}")
-    ticks, tick_labels = zip(*dict.fromkeys(zip(ticks, tick_labels)))
-
-    # dynamic width so bars don't get squished
-    num_steps = len(pivot)
-    width = max(12, num_steps * 0.2)
-    fig, ax = plt.subplots(figsize=(width, 6))
-
-    # stacked bars
-    bottom = np.zeros(len(pivot))
-    components = list(pivot.columns)
-    for comp in components:
-        vals = pivot[comp].values
-        ax.bar(x_positions, vals, bottom=bottom, label=comp)
-        bottom = bottom + vals
-
-    # episode separators
-    _add_episode_vlines(ax, ep_step_index)
-
-    # x tick labels: "ep:step"
-    ax.set_xticks(ticks)
-    ax.set_xticklabels(tick_labels, rotation=90)
-
-    ax.set_xlabel("Episode : Step")
-    ax.set_xlim(0, num_steps)
-    ax.set_ylabel("Reward")
-    ax.set_title(f"Phase {phase} – Reward Decomposition per Step (stacked)")
-    ax.legend(title="Component", bbox_to_anchor=(1.05, 1), loc="upper left")
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"phase_{phase}_stacked_rewards.png"
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    print(f"[plot_phase_stacked] Saved: {out_path}")
-    return out_path
-
-def plot_components_per_step(df_rewards: pd.DataFrame,
-                             df_total: pd.DataFrame,
-                             out_dir: Path):
-    if df_total.empty:
-        return None
-
-    # --- canonical index of ALL steps (even if reward_list was empty) ---
-    base_idx_df = (
-        df_total[["episode", "step"]]
-        .drop_duplicates()
-        .sort_values(["episode", "step"])
-    )
-    ep_step_index = list(map(tuple, base_idx_df.to_numpy()))  # [(ep, step), ...]
-
-    # --- aggregate rewards only where we actually have components ---
-    if df_rewards.empty:
-        # no components at all → everything is zero
-        pivot = pd.DataFrame(
-            0.0,
-            index=pd.MultiIndex.from_tuples(ep_step_index, names=["episode", "step"]),
-            columns=[],
-        )
-    else:
-        pivot = (
-            df_rewards.groupby(["episode", "step", "component"])["value"]
-            .sum()
-            .reset_index()
-            .pivot_table(
-                index=["episode", "step"],
-                columns="component",
-                values="value",
-                fill_value=0.0,
-            )
-        )
-        # reindex to include steps with no rewards (all zeros)
-        pivot = pivot.reindex(
-            pd.MultiIndex.from_tuples(ep_step_index, names=["episode", "step"]),
-            fill_value=0.0,
+        rows.append(
+            {
+                "profile": obj.get("profile"),
+                "step": int(obj["step"]),
+                "total_scalar": total_scalar,
+            }
         )
 
-    # --- prepare plotting ---
-    x = np.arange(len(ep_step_index))  # 0..N-1
-    num_steps = len(ep_step_index)
-    width = max(12, num_steps * 0.2)
-    fig, ax = plt.subplots(figsize=(width, 6))
+    df = pd.DataFrame(rows, columns=["profile", "step", "total_scalar"])
+    if df.empty:
+        return df
 
-    bottom = np.zeros(len(ep_step_index))
-    cols = list(pivot.columns)
+    df = reconstruct_episode_from_steps(df)
+    return df
 
-    # stacked bars (if no components, cols is empty → nothing drawn)
-    for comp in cols:
-        vals = pivot[comp].to_numpy()
-        ax.bar(x, vals, bottom=bottom, label=comp)
-        bottom = bottom + vals
 
-    # --- episode separator lines ---
-    _add_episode_vlines(ax, ep_step_index)
-
-    # --- smart x-ticks: episode start/end + every 10 steps ---
-    ticks = []
-    labels = []
-    prev_ep = None
-    for i, (ep, st) in enumerate(ep_step_index):
-        # episode start
-        if ep != prev_ep and not np.isnan(ep):
-            ticks.append(i)
-            labels.append(f"{round(ep)}:start")
-            prev_ep = ep
-        # every 10 steps
-        if st and st % 10 == 0:
-            ticks.append(i)
-            labels.append(f"step {round(st)}")
-
-    # deduplicate while preserving order
-    if ticks:
-        ticks_labels = list(dict.fromkeys(zip(ticks, labels)))
-        ticks, labels = zip(*ticks_labels)
-        ax.set_xticks(ticks)
-        ax.set_xticklabels(labels, rotation=90)
-    else:
-        ax.set_xticks(x)
-
-    ax.set_xlabel("Episode : Step")
-    ax.set_ylabel("Reward (summed across subnets)")
-    ax.set_title("Reward Components per Step (summed across subnets)")
-    if cols:
-        ax.legend(title="Component", bbox_to_anchor=(1.05, 1), loc="upper left")
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / "stacked_components_per_step.png"
-    fig.tight_layout()
-    fig.savefig(out, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    return out
-
-def plot_components_by_subnet(df_rewards: pd.DataFrame,
-                              out_dir: Path,
-                              avg: bool = True):
+def build_attacker_subnet_table(
+    reward_log_path: Path,
+    scalar_log_path: Path,
+    avg: bool = True,
+) -> pd.DataFrame:
     """
-    Stacked bar chart by subnet and component.
-    If avg=True: mean reward per episode.
-    If avg=False: cumulative reward over all episodes.
+    Returns:
+      attacker x subnet table with subnets + action_cost
     """
-    if df_rewards.empty:
-        return None
+    df_r = parse_reward_log(reward_log_path)
+    df_s = parse_scalar_log(scalar_log_path)
 
-    if avg:
-        agg = (
-            df_rewards.groupby(["episode", "subnet", "component"])["value"]
-            .sum()
-            .groupby(["subnet", "component"])
-            .mean()
-            .reset_index()
-        )
-    else:
-        agg = (
-            df_rewards.groupby(["subnet", "component"])["value"]
-            .sum()
-            .reset_index()
-        )
+    if df_r.empty and df_s.empty:
+        return pd.DataFrame()
 
-    pivot = (
-        agg.pivot_table(
-            index="subnet",
-            columns="component",
-            values="value",
-            fill_value=0.0,
-        )
-        .sort_index()
-    )
+    # ---- subnet reward aggregation ----
+    subnet_part = pd.DataFrame(columns=["profile", "subnet", "value"])
 
-    if pivot.empty:
-        return None
-
-    idx = range(len(pivot))
-    plt.figure(figsize=(max(8, len(pivot) * 1.2), 6))
-
-    bottom = None
-    cols = list(pivot.columns)
-
-    for i, comp in enumerate(cols):
-        vals = pivot[comp].values
-        if i == 0:
-            plt.bar(idx, vals, label=comp)
-            bottom = vals
-        else:
-            plt.bar(idx, vals, bottom=bottom, label=comp)
-            bottom = bottom + vals
-
-    y_label = "Avg Reward per Episode" if avg else "Cumulative Reward"
-    plt.title(f"{y_label} by Subnet and Component")
-    plt.xlabel("Subnet")
-    plt.ylabel(y_label)
-
-    plt.xticks(list(idx), pivot.index, rotation=45, ha="right")
-    plt.legend(title="Component")
-
-    out = out_dir / f"stacked_components_by_subnet_{'avg' if avg else 'sum'}.png"
-    plt.tight_layout()
-    plt.savefig(out, bbox_inches="tight")
-    plt.close()
-
-    return out
-
-
-def plot_episode_detail(df_rewards: pd.DataFrame, df_acost: pd.DataFrame, episode: int, out_dir: Path):
-    """
-    For a given episode:
-      - Stacked bars per step: Local Work Failure / Access Service Failure / Red Impact Achieved / Action Cost (total)
-      y-axis: reward + cost
-      x-axis: step numbers
-    """
-    if df_rewards.empty and df_acost.empty:
-        return None
-
-    # --- reward components per step ---
-    df_r = df_rewards[df_rewards["episode"] == episode].copy()
     if not df_r.empty:
-        comp_per_step = (
-            df_r.groupby(["step", "component"])["value"]
+        subnet_rows = df_r[df_r["subnet"].notna()].copy()
+
+        if avg:
+            subnet_part = (
+                subnet_rows.groupby(["profile", "episode_recon", "subnet"], dropna=True)["value"]
+                .sum()
+                .groupby(["profile", "subnet"], dropna=True)
+                .mean()
+                .reset_index()
+            )
+        else:
+            subnet_part = (
+                subnet_rows.groupby(["profile", "subnet"], dropna=True)["value"]
                 .sum()
                 .reset_index()
-                .pivot_table(index="step", columns="component", values="value", fill_value=0)
-                .sort_index()
-        )
-    else:
-        comp_per_step = pd.DataFrame()
+            )
 
-    # --- total action cost per step (sum over agents) ---
-    df_a = df_acost[df_acost["episode"] == episode].copy()
-    if not df_a.empty:
-        acost_per_step = (
-            df_a.groupby("step")["action_cost"]
+    # ---- reward_total per step (deduplicate step-level rows) ----
+    reward_total_step = pd.DataFrame(columns=["profile", "episode_recon", "step", "reward_total"])
+
+    if not df_r.empty:
+        reward_total_step = (
+            df_r.groupby(["profile", "episode_recon", "step"], dropna=True)["reward_total"]
+            .first()
+            .reset_index()
+        )
+
+    # ---- scalar_total per step ----
+    scalar_total_step = pd.DataFrame(columns=["profile", "episode_recon", "step", "total_scalar"])
+
+    if not df_s.empty:
+        scalar_total_step = (
+            df_s.groupby(["profile", "episode_recon", "step"], dropna=True)["total_scalar"]
+            .first()
+            .reset_index()
+        )
+
+    # ---- action cost ----
+    action_cost_part = pd.DataFrame(columns=["profile", "subnet", "value"])
+
+    if not reward_total_step.empty and not scalar_total_step.empty:
+        merged = pd.merge(
+            scalar_total_step,
+            reward_total_step,
+            on=["profile", "episode_recon", "step"],
+            how="inner",
+        )
+        merged["action_cost"] = merged["total_scalar"] - merged["reward_total"]
+
+        if avg:
+            action_cost_part = (
+                merged.groupby(["profile", "episode_recon"], dropna=True)["action_cost"]
+                .sum()
+                .groupby("profile", dropna=True)
+                .mean()
+                .reset_index()
+            )
+        else:
+            action_cost_part = (
+                merged.groupby("profile", dropna=True)["action_cost"]
                 .sum()
                 .reset_index()
-                .sort_values("step")
-                .set_index("step")
-        )
-    else:
-        acost_per_step = pd.DataFrame(columns=["action_cost"])
+            )
 
-    # --- merge and align steps ---
-    steps_union = sorted(set(comp_per_step.index.tolist()) | set(acost_per_step.index.tolist()))
-    if not steps_union:
+        action_cost_part["subnet"] = "action_cost"
+        action_cost_part = action_cost_part.rename(columns={"action_cost": "value"})
+
+    # ---- combine ----
+    combined = pd.concat([subnet_part, action_cost_part], ignore_index=True)
+
+    if combined.empty:
+        return combined
+
+    combined["subnet"] = pd.Categorical(combined["subnet"], categories=SUBNET_ORDER, ordered=True)
+    combined = combined.sort_values(["profile", "subnet"]).reset_index(drop=True)
+    return combined
+
+
+def plot_model_attacker_lines(
+    model_name: str,
+    model_dir: Path,
+    out_dir: Path,
+    attackers: Optional[list[str]] = None,
+    avg: bool = True,
+):
+    if attackers is None:
+        attackers = ATTACKER_ORDER
+
+    rows = []
+
+    for attacker in attackers:
+        reward_log = model_dir / attacker / "reward_log.jsonl"
+        scalar_log = model_dir / attacker / "scalar_rewards.jsonl"
+
+        if not reward_log.exists() or not scalar_log.exists():
+            print(f"[warn] Missing logs for {model_name}/{attacker}")
+            continue
+
+        table = build_attacker_subnet_table(reward_log, scalar_log, avg=avg)
+        if table.empty:
+            continue
+
+        table = table.copy()
+        table["attacker"] = attacker
+        rows.append(table)
+
+    if not rows:
+        print(f"[warn] No data found for model {model_name}")
         return None
 
-    # reindex to ensure all steps exist
-    comp_plot = comp_per_step.reindex(steps_union, fill_value=0)
-    acost_plot = acost_per_step.reindex(steps_union, fill_value=0)
+    df = pd.concat(rows, ignore_index=True)
 
-    # --- add Action Cost as a "component" ---
-    comp_plot["Action Cost (total)"] = acost_plot["action_cost"].values
+    with plt.style.context(["science", "ieee", "bright", "no-latex"]):
+        _style_rcparams()
 
-    # --- stacked bar chart ---
-    # make width depend on number of steps
-    width = max(10, len(steps_union) * 0.2)  # 0.4–0.5 is a good per-step factor
-    fig, ax = plt.subplots(figsize=(width, 6))
+        fig, ax = plt.subplots(figsize=(6.8, 3.2))
 
-    components = list(comp_plot.columns)
-    bottom = [0] * len(comp_plot)
+        x_labels = [s for s in SUBNET_ORDER if s in set(df["subnet"].astype(str))]
+        x = np.arange(len(x_labels))
 
-    for comp in components:
-        vals = comp_plot[comp].values
-        ax.bar(range(len(steps_union)), vals, bottom=bottom, label=comp)
-        bottom = [b + v for b, v in zip(bottom, vals)]
+        color_map = {
+            attacker: OKABE_ITO[i % len(OKABE_ITO)]
+            for i, attacker in enumerate(attackers)
+        }
 
-    ax.set_title(f"Episode {episode}: Stacked Reward and Action Cost per Step")
-    ax.set_xlabel("Step")
-    ax.set_ylabel("Reward / Action Cost")
-    ax.set_xlim(0, len(steps_union))
-    ax.set_xticks(range(len(steps_union)))
-    ax.legend(title="Component", bbox_to_anchor=(1.05, 1), loc="upper left")
+        for attacker in attackers:
+            sub = df[df["attacker"] == attacker].copy()
+            if sub.empty:
+                continue
 
-    out = out_dir / f"episode_{episode}_reward_and_actioncost_stacked.png"
-    plt.tight_layout()
-    plt.savefig(out, bbox_inches="tight")
-    plt.close()
-    return out
+            y_vals = []
+            for subnet in x_labels:
+                val = sub.loc[sub["subnet"].astype(str) == subnet, "value"]
+                y_vals.append(float(val.iloc[0]) if len(val) else 0.0)
+
+            ax.plot(
+                x,
+                y_vals,
+                marker="o",
+                linewidth=2.0,
+                markersize=4.5,
+                label=attacker,
+                color=color_map[attacker],
+            )
+
+        pretty_labels = [SUBNET_LABEL_MAP.get(s, s) for s in x_labels]
+        ax.set_xticks(x)
+        ax.set_xticklabels(pretty_labels, rotation=25, ha="right", fontsize=9)
+
+        _apply_common_axes_style(ax, y_label="Avg Reward" if avg else "Cumulative Reward")
+
+        if "sleep" in model_name.lower():
+            ax.set_yticks([0, -1000, -2000, -3000])
+        else:
+            ax.set_yticks([0, -100, -200, -300, -400])
+
+        ax.legend(
+            loc="upper center",
+            bbox_to_anchor=(0.5, 1.05),
+            ncol=len(ATTACKER_ORDER),  # eine Zeile
+            frameon=True,
+            columnspacing=1.0,
+            handlelength=1.6,
+        )
+
+        stem = f"{model_name}_reward_decomposition_lines_{'avg' if avg else 'sum'}"
+        return _save_fig(fig, out_dir, stem)
+
+def plot_all_models_2x2(
+    model_dirs: dict[str, Path],
+    out_dir: Path,
+    attackers: Optional[list[str]] = None,
+    avg: bool = True,
+):
+    if attackers is None:
+        attackers = ATTACKER_ORDER
+
+    model_tables = {}
+
+    # ---- load data for all models ----
+    for model_name, model_dir in model_dirs.items():
+        rows = []
+
+        for attacker in attackers:
+            reward_log = model_dir / attacker / "reward_log.jsonl"
+            scalar_log = model_dir / attacker / "scalar_rewards.jsonl"
+
+            if not reward_log.exists() or not scalar_log.exists():
+                print(f"[warn] Missing logs for {model_name}/{attacker}")
+                continue
+
+            table = build_attacker_subnet_table(reward_log, scalar_log, avg=avg)
+            if table.empty:
+                continue
+
+            table = table.copy()
+            table["attacker"] = attacker
+            rows.append(table)
+
+        if rows:
+            model_tables[model_name] = pd.concat(rows, ignore_index=True)
+
+    if not model_tables:
+        print("[warn] No model data found.")
+        return None
+
+    with plt.style.context(["science", "ieee", "bright", "no-latex"]):
+        _style_rcparams()
+
+        fig, axes = plt.subplots(
+            2, 2,
+            figsize=(7.16, 3.6),  # breiter Eindruck, weniger Höhe
+            sharex=True,
+            sharey=False
+        )
+        fig.subplots_adjust(
+            left=0.07,
+            right=0.995,
+            bottom=0.16,
+            top=0.86,
+            wspace=0.18,
+            hspace=0.25
+        )
+        axes = axes.flatten()
+
+        legend_handles = None
+        legend_labels = None
+
+        color_map = {
+            attacker: OKABE_ITO[i % len(OKABE_ITO)]
+            for i, attacker in enumerate(attackers)
+        }
+
+        x_labels = SUBNET_ORDER
+        x = np.arange(len(x_labels))
+
+        global_min = 0.0
+        for df in model_tables.values():
+            if not df.empty:
+                global_min = min(global_min, float(df["value"].min()))
+
+        for ax, (model_name, df) in zip(axes, model_tables.items()):
+            for attacker in attackers:
+                sub = df[df["attacker"] == attacker].copy()
+                if sub.empty:
+                    continue
+
+                y_vals = []
+                for subnet in x_labels:
+                    val = sub.loc[sub["subnet"].astype(str) == subnet, "value"]
+                    y_vals.append(float(val.iloc[0]) if len(val) else 0.0)
+
+                ax.plot(
+                    x,
+                    y_vals,
+                    marker="o",
+                    linewidth=1.3,
+                    markersize=3.0,
+                    label=attacker,
+                    color=color_map[attacker],
+                )
+
+            if legend_handles is None:
+                legend_handles, legend_labels = ax.get_legend_handles_labels()
+
+            ax.set_title(model_name, fontsize=11, fontweight="bold")
+            ax.grid(axis="y", alpha=0.25, zorder=0)
+            ax.axhline(0.0, linewidth=1.2, color="black", zorder=3)
+
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+
+            pretty_labels = [SUBNET_LABEL_MAP.get(s, s) for s in x_labels]
+            ax.set_xticks(x)
+            ax.set_xticklabels(pretty_labels, rotation=25, ha="right", fontsize=9)
+
+            if "sleep" in model_name.lower():
+                ax.set_yticks([0, -1000, -2000, -3000])
+            else:
+                ax.set_yticks([0, -100, -200, -300])
+
+        # axis labels only where needed
+        axes[0].set_ylabel("Avg Reward" if avg else "Cumulative Reward")
+        axes[2].set_ylabel("Avg Reward" if avg else "Cumulative Reward")
+        axes[2].set_xlabel("Subnet", fontsize=10)
+        axes[3].set_xlabel("Subnet", fontsize=10)
+
+        for ax in axes:
+            ax.tick_params(axis="x", pad=1)
+        for ax in axes:
+            ax.xaxis.labelpad = 2
+            ax.yaxis.labelpad = 2
+
+        # one shared legend above all plots
+        fig.legend(
+            legend_handles,
+            legend_labels,
+            loc="upper center",
+            bbox_to_anchor=(0.5, 1.015),
+            ncol=len(legend_labels),   # alles in eine Zeile
+            frameon=True,
+            fontsize=11,
+            handlelength=1.5,
+            columnspacing=0.9,
+            borderpad=0.3,
+        )
+
+        fig.subplots_adjust(
+            left=0.07,
+            right=0.995,
+            bottom=0.12,
+            top=0.855,
+            wspace=0.20,
+            hspace=0.18
+        )
+
+        stem = f"reward_decomposition_all_models_2x2_{'avg' if avg else 'sum'}"
+        return _save_fig(fig, out_dir, stem)
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--log", type=Path, default=Path("reward_log.jsonl"))
-    ap.add_argument("--out", type=Path, default=Path("reward_plots"))
+    ap.add_argument("--out", type=Path, default=Path("Result/RewardDecomp/reward_decomp_plots"))
+    ap.add_argument("--sum", action="store_true")
     args = ap.parse_args()
 
-    df_rewards, df_total, df_acost = parse_log(args.log)
-    all_episodes = sorted(df_total["episode"].unique())
+    avg = not args.sum
+    out_dir = Path(args.out)
 
-    args.out.mkdir(parents=True, exist_ok=True)
-    phase_out_dir = Path(args.out) / "PhasePlots"
-    phase_out_dir.mkdir(parents=True, exist_ok=True)
-    episode_out_dir = Path(args.out) / "EpisodePlots"
-    episode_out_dir.mkdir(parents=True, exist_ok=True)
-
-    for ep in all_episodes:
-        print(f"Plotting episode {ep}…")
-        try:
-            plot_episode_detail(df_rewards, df_acost, episode=ep, out_dir=episode_out_dir)
-        except Exception as e:
-            print(f"   ⚠️ Failed for episode {ep}: {e}")
-
-    # General plots
-    p1 = plot_total(df_total, args.out)
-    p2 = plot_components_per_step(df_rewards, df_total, args.out)
-    p3 = plot_components_by_subnet(df_rewards, args.out)
-    p4 = plot_action_cost_by_agent(df_acost, args.out)
-    p5 = plot_components_by_phase(df_rewards, df_total, df_acost, out_dir=phase_out_dir)
-    p6 = plot_components_by_subnet_per_phase(df_rewards, out_dir=phase_out_dir)
-    for phase in sorted(df_rewards["phase"].dropna().unique()):
-        plot_phase_stacked(df_rewards, df_total, phase=int(phase), out_dir=phase_out_dir)
+    saved = []
+    for model_name, model_dir in MODEL_DIRS_DEFAULT.items():
+        p = plot_model_attacker_lines(
+            model_name=model_name,
+            model_dir=model_dir,
+            out_dir=out_dir,
+            attackers=ATTACKER_ORDER,
+            avg=avg,
+        )
+        if p is not None:
+            saved.append(p)
 
     print("Saved figures:")
-    print(" - Total per step:", p1)
-    print(" - Components per step:", p2)
-    print(" - Per subnet:", p3)
-    print(" - Action Cost by Agent:", p4)
-    print(" - Components by Phase:", p5)
-    print(" - Per subnet & phase:", p6)
+    for p in saved:
+        print(f" - {p}")
+
+    model_dirs = {
+        "SimpleGNN": Path("Result/SimpleGNN"),
+        "RedVariants": Path("Result/RedVariants"),
+        "Heuristic": Path("Result/Heuristic"),
+        "Sleep": Path("Result/Sleep"),  # Beispiel
+    }
+
+    out = plot_all_models_2x2(
+        model_dirs=model_dirs,
+        out_dir=out_dir,
+        attackers=ATTACKER_ORDER,
+        avg=avg,
+    )
+
+    print("Saved figures:")
+    if out is not None:
+        print(f" - {out}")
+
 
 if __name__ == "__main__":
     main()
