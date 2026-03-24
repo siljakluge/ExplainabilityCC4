@@ -102,7 +102,7 @@ def _safe_import_profiles():
     }
 
     try:
-        from RedAgents import (
+        from CybORG.Agents.RedAgents import (
             DiscoveryFSRed,
             VerboseFSRed,
             StealthPivotFSRed,
