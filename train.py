@@ -508,7 +508,7 @@ if __name__ == "__main__":
         HP.workers = 12
         HP.bs = 1500
         HP.episode_len = 500
-        HP.training_episodes = 5000
+        HP.training_episodes = 10000
         HP.epochs = 4
 
     # Create agents
@@ -548,3 +548,11 @@ if __name__ == "__main__":
         harden_updates=args.harden_updates,
         log_per_profile=args.log_per_profile,
     )
+
+"""
+python train.py red_rew_only \
+  --KIServer \
+  --phase_reward_mode red_only \
+  --strategy single \
+  --single_profile fsm_default
+"""
