@@ -451,6 +451,9 @@ if __name__ == "__main__":
     ap.add_argument("--embedding", type=int, default=128)
     ap.add_argument("--debug", action="store_true", help="Small safe config")
     ap.add_argument("--KIServer", action="store_true", help="Server Config")
+    ap.add_argument("--phase_reward_mode", default="default",
+                    choices=["default", "contractor_off", "red_only"])
+    ap.add_argument("--reward_blue", action="store_true")
 
     ap.add_argument(
         "--strategy",
@@ -488,6 +491,8 @@ if __name__ == "__main__":
 
     args = ap.parse_args()
     print(args)
+    os.environ["CYBORG_PHASE_REWARD_MODE"] = args.phase_reward_mode
+    os.environ["CYBORG_REWARD_blue"] = "1" if args.reward_blue else "0"
 
     # Apply debug overrides (matching your current ones)
     if args.debug:

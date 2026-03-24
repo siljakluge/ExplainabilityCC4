@@ -224,11 +224,9 @@ class GraphWrapper(EnterpriseMAE):
                 msg = msg[:, :2]
 
             msg = np.concatenate([msg, recieved_msg], axis=1)
-            feats = extract_shap_features(dict_obs, msg_matrix=msg)
 
             if agent not in info or info[agent] is None:
                 info[agent] = {}
-            info[agent]["shap_features"] = feats
             info[agent]["chosen_action_type"] = _action_type(action.get(agent))
             info[agent]["chosen_action_str"] = str(action.get(agent))
 

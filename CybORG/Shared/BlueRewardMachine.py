@@ -46,10 +46,8 @@ class BlueRewardMachine(RewardCalculator):
         **kwargs
     ):
         super().__init__(*args, **kwargs)
-        self.reward_green = reward_green
-        self.reward_red = reward_red
-        self.reward_blue_actions = reward_blue_actions
-        self.phase_reward_mode = phase_reward_mode
+        self.phase_reward_mode = os.environ.get("CYBORG_PHASE_REWARD_MODE", "default")
+        self.reward_blue_actions = os.environ.get("CYBORG_REWARD_BLUE", "1") == "1"
 
         self._episode = 0
         self._step = 0
@@ -144,102 +142,101 @@ class BlueRewardMachine(RewardCalculator):
         reward_table = modes[self.phase_reward_mode]
         return reward_table[cur_mission_phase]
 
-
-    def calculate_reward(self, current_state: dict, action_dict: dict, agent_observations: dict, done: bool, state: State):
-        """Calculate the cumulative reward based on the phase mapping.
-
-        Parameters
-        ----------
-        current_state : Dict[str, _]
-            the current state of all the hosts in the simulation
-        action_dict : dict
-        agent_observations : Dict[str, ObservationSet]
-            current agent observations
-        done : bool
-            has the episode ended
-        state: State
-            current State object
-
-        Returns
-        -------
-        : int
-            sum of the rewards collected
-        """
+    def calculate_reward(self, current_state: dict, action_dict: dict, agent_observations: dict, done: bool,
+                         state: State):
         reward_list = []
         reward_summary = {
             "total": 0,
-            "subnet_rewards": defaultdict(lambda: {"LWF": 0, "ASF": 0, "RIA": 0, "EXP": 0, "PRIV": 0, "DEG": 0}),
+            "subnet_rewards": defaultdict(
+                lambda: {"LWF": 0, "ASF": 0, "RIA": 0, "EXP": 0, "PRIV": 0, "DEG": 0, "ANALYSE": 0}
+            ),
         }
+
         self.phase_rewards = self.get_phase_rewards(state.mission_phase)
+        rew_mode = self.phase_reward_mode
+        blue_rew = self.reward_blue_actions
 
         for agent_name, action in action_dict.items():
             if not action:
                 continue
-            
-            action = action[0]            
-            if isinstance(action, Impact):
-                hostname = action.hostname
-            elif isinstance(action, GreenAccessService) or isinstance(action, GreenLocalWork):
-                hostname = state.ip_addresses[action.ip_address]
-            else:
+
+            action = action[0]
+            r = 0
+            hostname = None
+            subnet_name = None
+
+            # ----------------------------
+            # Resolve hostname / subnet
+            # ----------------------------
+            try:
+                if isinstance(action, (Impact, Analyse, PrivilegeEscalate, DegradeServices)):
+                    hostname = action.hostname
+
+                elif isinstance(action, (GreenAccessService, GreenLocalWork, ExploitRemoteService)):
+                    hostname = state.ip_addresses[action.ip_address]
+
+                # if hostname was found, resolve subnet
+                if hostname is not None:
+                    subnet_name = state.hostname_subnet_map[hostname].value
+
+            except Exception as e:
+                print(f"[reward] Could not resolve hostname/subnet for {agent_name}: {action} ({e})")
+                hostname = None
+                subnet_name = None
+
+            sessions = state.sessions[agent_name].values()
+            if len([session.ident for session in sessions if session.active]) == 0:
                 continue
 
-            subnet_name = state.hostname_subnet_map[hostname].value
-            sessions = state.sessions[agent_name].values()
+            try:
+                success = agent_observations[agent_name].observations[0].data["success"]
+            except Exception:
+                success = False
 
-            if len([session.ident for session in sessions if session.active]) > 0:
-                success = agent_observations[agent_name].observations[0].data['success']
-                rewards_for_zone = self.phase_rewards[subnet_name]
+            rewards_for_zone = self.phase_rewards.get(subnet_name, None) if subnet_name is not None else None
 
-                if 'green' in agent_name and success == False:
-                    if isinstance(action, GreenLocalWork):
-                        r = rewards_for_zone['LWF']
-                        reward_list.append(r)
-                        reward_summary["subnet_rewards"][subnet_name]["LWF"] += r
-                    elif isinstance(action, GreenAccessService):
-                        r = rewards_for_zone['ASF']
-                        reward_list.append(r)
-                        reward_summary["subnet_rewards"][subnet_name]["ASF"] += r
+            # ----------------------------
+            # Green rewards
+            # ----------------------------
+            if "green" in agent_name and success is False and rew_mode != "red_only" and rewards_for_zone is not None:
+                if isinstance(action, GreenLocalWork):
+                    r = rewards_for_zone["LWF"]
+                    reward_summary["subnet_rewards"][subnet_name]["LWF"] += r
 
-                elif self.reward_red and 'red' in agent_name and success and subnet_name is not None:
+                elif isinstance(action, GreenAccessService):
+                    r = rewards_for_zone["ASF"]
+                    reward_summary["subnet_rewards"][subnet_name]["ASF"] += r
 
-                    rewards_for_zone = self.phase_rewards[subnet_name]
-
-                    if isinstance(action, Impact):
-                        r = rewards_for_zone["RIA"]
-                        reward_summary["subnet_rewards"][subnet_name]["RIA"] += r
-
-                    elif PrivilegeEscalate and isinstance(action, PrivilegeEscalate):
-                        r = rewards_for_zone["RIA"] * 0.7
-                        reward_summary["subnet_rewards"][subnet_name]["PRIV"] += r
-
-                    elif ExploitRemoteService and isinstance(action, ExploitRemoteService):
-                        r = rewards_for_zone["RIA"] * 0.8
-                        reward_summary["subnet_rewards"][subnet_name]["EXP"] += r
-
-                    elif DegradeServices and isinstance(action, DegradeServices):
-                        r = rewards_for_zone["RIA"] * 0.6
-                        reward_summary["subnet_rewards"][subnet_name]["DEG"] += r
-
-                    else:
-                        r = 0
-
-                elif 'blue' in agent_name and Analyse and isinstance(action, Analyse) and self.reward_blue_actions:
-
-                    r = 1.0
-                    reward_list.append(r)
-
-                    reward_summary["subnet_rewards"][subnet_name or "unknown"]["ANALYSE"] += r
-                    reward_summary["total"] += r
-
-                elif 'red' in agent_name and success and isinstance(action, Impact) and self.reward_red is not False:
-                    r = rewards_for_zone['RIA']
-                    reward_list.append(r)
+            # ----------------------------
+            # Red rewards
+            # ----------------------------
+            elif "red" in agent_name and success and rewards_for_zone is not None:
+                if isinstance(action, Impact):
+                    r = rewards_for_zone["RIA"]
                     reward_summary["subnet_rewards"][subnet_name]["RIA"] += r
-                else:
-                    r = 0
 
-                reward_summary["total"] += r
+                elif rew_mode == "red_only" and isinstance(action, PrivilegeEscalate):
+                    r = rewards_for_zone["PRIV"]
+                    reward_summary["subnet_rewards"][subnet_name]["PRIV"] += r
+
+                elif rew_mode == "red_only" and isinstance(action, ExploitRemoteService):
+                    r = rewards_for_zone["EXP"]
+                    reward_summary["subnet_rewards"][subnet_name]["EXP"] += r
+
+                elif rew_mode == "red_only" and isinstance(action, DegradeServices):
+                    r = rewards_for_zone["DEG"]
+                    reward_summary["subnet_rewards"][subnet_name]["DEG"] += r
+
+            # ----------------------------
+            # Blue analyse reward
+            # ----------------------------
+            elif "blue" in agent_name and blue_rew and isinstance(action, Analyse):
+                r = 0.1
+                reward_summary["subnet_rewards"][subnet_name or "unknown"]["ANALYSE"] += r
+
+            reward_list.append(r)
+            reward_summary["total"] += r
+
         try:
             # --- determine "time" in a safe way ---
             cur_time = getattr(state, "time", None)
@@ -271,11 +268,6 @@ class BlueRewardMachine(RewardCalculator):
 
             profile = os.environ.get("CYBORG_ATTACK_PROFILE", None)
             run_tag = os.environ.get("CYBORG_RUN_TAG", None)
-            mode = []
-            if self.reward_blue_actions:
-                mode.append("blue_analyse_reward")
-            if self.reward_red:
-                mode.append("red_only")
 
             # --- write entry ---
             log_entry = {

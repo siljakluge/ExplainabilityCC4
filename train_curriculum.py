@@ -367,12 +367,14 @@ if __name__ == "__main__":
         HP.bs = 384
         HP.episode_len = 100
         HP.epochs = 2
+        args.stage_episodes = 10
     if args.KIServer:
         HP.N = 10
         HP.workers = 12
         HP.bs = 1500
         HP.episode_len = 500
         HP.epochs = 4
+        args.stage_episodes = 5000
 
     curriculum_order = [p.strip() for p in args.curriculum_order.split(",") if p.strip()]
     if not curriculum_order:

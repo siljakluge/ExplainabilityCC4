@@ -75,7 +75,7 @@ def _safe_import_profiles():
         "fsm_default": FiniteStateRedAgent,
     }
     try:
-        from RedAgents import (
+        from CybORG.Agents.RedAgents import (
             DiscoveryFSRed,
             VerboseFSRed,
             StealthPivotFSRed,
