@@ -357,9 +357,14 @@ if __name__ == "__main__":
         action="store_true",
         help="Write logs/<fname>_per_profile.pt",
     )
+    ap.add_argument("--phase_reward_mode", default="default",
+                    choices=["default", "contractor_off", "red_only"])
+    ap.add_argument("--reward_blue", action="store_true")
 
     args = ap.parse_args()
     print(args)
+    os.environ["CYBORG_PHASE_REWARD_MODE"] = args.phase_reward_mode
+    os.environ["CYBORG_REWARD_blue"] = "1" if args.reward_blue else "0"
 
     if args.debug:
         HP.N = 6
