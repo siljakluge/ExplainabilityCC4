@@ -1,4 +1,3 @@
-
 from CybORG.Shared.RewardCalculator import RewardCalculator
 from CybORG.Simulator.State import State
 from CybORG.Simulator.Actions.GreenActions import GreenAccessService, GreenLocalWork
@@ -198,7 +197,8 @@ class BlueRewardMachine(RewardCalculator):
             # ----------------------------
             # Green rewards
             # ----------------------------
-            if "green" in agent_name and success is False and rew_mode != "red_only" and rewards_for_zone is not None:
+            # success is a TernaryEnum
+            if "green" in agent_name and success == False and rew_mode != "red_only" and rewards_for_zone is not None:
                 if isinstance(action, GreenLocalWork):
                     r = rewards_for_zone["LWF"]
                     reward_summary["subnet_rewards"][subnet_name]["LWF"] += r
@@ -210,7 +210,8 @@ class BlueRewardMachine(RewardCalculator):
             # ----------------------------
             # Red rewards
             # ----------------------------
-            elif "red" in agent_name and success and rewards_for_zone is not None:
+            # `success` is always truthy for a TernaryEnum (no __bool__)
+            elif "red" in agent_name and success == True and rewards_for_zone is not None:
                 if isinstance(action, Impact):
                     r = rewards_for_zone["RIA"]
                     reward_summary["subnet_rewards"][subnet_name]["RIA"] += r
