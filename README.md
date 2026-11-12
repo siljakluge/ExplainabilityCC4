@@ -178,12 +178,12 @@ python export_weights.py
 
 ```python
 class Submission:
-    NAME = "RedVariants"
+    NAME = "GNN"
 
     def __init__(self):
         self.AGENTS = {
             f"blue_agent_{i}": load(
-                f"weights/exp_mix/gnn_ppo-{i}.pt",
+                f"weights/contractor_active/gnn_ppo-{i}.pt",
                 map_location="cpu"
             )
             for i in range(5)
