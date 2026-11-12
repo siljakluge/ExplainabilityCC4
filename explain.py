@@ -21,7 +21,7 @@ from plotting.plot_actions import log_actions_jsonl
 from SHAP.policy_shap_heuristic import train_surrogate_and_shap
 from SHAP.shap_gnn import run_shap
 
-
+REWARD_MODES = ["default", "contractor_off", "red_only"]
 # ----------------------------
 # Utilities
 # ----------------------------
@@ -97,6 +97,20 @@ def _safe_import_profiles():
     return profiles
 
 PROFILE_REGISTRY: Dict[str, type] = _safe_import_profiles()
+
+def parse_reward_modes(s: str) -> List[str]:
+    if not s.strip():
+        return []
+    modes = [x.strip() for x in s.split(",") if x.strip()]
+    bad = [m for m in modes if m not in REWARD_MODES]
+    if bad:
+        raise ValueError(f"Unknown reward mode(s): {bad}. Available: {REWARD_MODES}")
+    return modes
+
+def parse_name_set(s: str) -> set[str]:
+    if not s.strip():
+        return set()
+    return {x.strip() for x in s.split(",") if x.strip()}
 
 def parse_profile_weights(s: str) -> Dict[str, float]:
     weights: Dict[str, float] = {}
@@ -193,7 +207,7 @@ def run_one_episode_and_log(
     is_heuristic: bool,
     shap: bool,
     prof_dir: Path | None,
-    epi: int | None,
+    epi: int | None = None,
 ) -> Tuple[float, List[Any], List[Dict[str, Any]]]:
     """
     Runs 1 episode in an env with fixed red agent class and appends to logs.
@@ -289,6 +303,8 @@ def run_explainability_profiles(
     episode_length: int = 500,
     shap: bool = False,
     is_heuristic: bool = False,
+    phase_reward_mode: str = "default",
+    reward_blue: bool = False,
 
     # profile selection mode
     mode: str = "single",                 # single | sweep
@@ -311,6 +327,11 @@ def run_explainability_profiles(
 
     out_root = Path(output_dir)
     ensure_dir(out_root)
+
+    os.environ["CYBORG_PHASE_REWARD_MODE"] = phase_reward_mode
+    os.environ["CYBORG_REWARD_BLUE"] = "1" if reward_blue else "0"
+
+    print(f"[explain] reward_mode={phase_reward_mode} reward_blue={reward_blue}")
 
     # ----------------------------
     # Decide which profiles to run
@@ -527,6 +548,8 @@ def run_explainability_profiles(
                     "strategy": strategy if mode == "single" else None,
                     "profile": prof,
                     "profile_weights": weights if (mode == "single" and strategy == "mixture") else None,
+                    "phase_reward_mode": phase_reward_mode,
+                    "reward_blue": reward_blue,
                 },
                 "time": {"start": str(start), "end": str(end), "elapsed": str(end - start)},
                 "reward_scalar": {
@@ -586,9 +609,6 @@ if __name__ == "__main__":
     parser.add_argument("--is-heuristic", action="store_true")
     parser.add_argument("--non-heuristic", dest="is_heuristic", action="store_false")
     parser.set_defaults(is_heuristic=False)
-    parser.add_argument("--phase_reward_mode", default="default",
-                    choices=["default", "contractor_off", "red_only"])
-    parser.add_argument("--reward_blue", action="store_true")
 
     # profile control
     parser.add_argument("--mode", choices=["single", "sweep"], default="sweep")
@@ -597,9 +617,35 @@ if __name__ == "__main__":
     parser.add_argument("--profile_weights", default="")  # name=w,name=w,...
     parser.add_argument("--include-mixed-in-sweep", action="store_true")
 
+    parser.add_argument(
+        "--phase_reward_mode",
+        default="default",
+        choices=REWARD_MODES,
+        help="Single reward mode to use if --reward_mode_strategy=single."
+    )
+    parser.add_argument(
+        "--reward_mode_strategy",
+        choices=["single", "sweep"],
+        default="single",
+        help="Run one reward mode or sweep across multiple reward modes."
+    )
+    parser.add_argument(
+        "--reward_modes",
+        default="",
+        help='Comma-separated reward modes for sweep, e.g. "default,red_only". Empty => all.'
+    )
+    parser.add_argument(
+        "--reward_blue",
+        action="store_true",
+        help="Enable blue analyse reward for single-mode runs."
+    )
+    parser.add_argument(
+        "--reward_blue_modes",
+        default="",
+        help='Optional comma-separated reward modes for blue analyse reward in sweep mode, e.g. "red_only".'
+    )
+
     args = parser.parse_args()
-    os.environ["CYBORG_PHASE_REWARD_MODE"] = args.phase_reward_mode
-    os.environ["CYBORG_REWARD_BLUE"] = "1" if args.reward_blue else "0"
 
     submission = load_submission(args.submission_path)
     if isinstance(submission, type):
@@ -608,31 +654,59 @@ if __name__ == "__main__":
     os.makedirs(args.output, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d-%H%M")
     agent_type = submission.NAME
-    run_dir = os.path.join(args.output, f"{agent_type}_{ts}")
-    rmkdir(run_dir)
 
     weights = parse_profile_weights(args.profile_weights) if args.profile_weights else None
 
-    run_explainability_profiles(
-        submission=submission,
-        output_dir=run_dir,
-        max_eps=args.max_eps,
-        seed=args.seed,
-        episode_length=args.episode_length,
-        shap=args.shap,
-        is_heuristic=args.is_heuristic,
-        mode=args.mode,
-        strategy=args.strategy,
-        single_profile=args.single_profile,
-        profile_weights=weights,
-        include_mixed_in_sweep=args.include_mixed_in_sweep,
-    )
+    if args.reward_mode_strategy == "single":
+        reward_runs = [{
+            "phase_reward_mode": args.phase_reward_mode,
+            "reward_blue": args.reward_blue,
+        }]
+    else:
+        selected_modes = parse_reward_modes(args.reward_modes) if args.reward_modes else REWARD_MODES
+        blue_modes = parse_name_set(args.reward_blue_modes)
+        reward_runs = [
+            {
+                "phase_reward_mode": mode_name,
+                "reward_blue": mode_name in blue_modes,
+            }
+            for mode_name in selected_modes
+        ]
+
+    base_run_dir = Path(args.output) / f"{agent_type}_{ts}"
+    ensure_dir(base_run_dir)
+
+    for rr in reward_runs:
+        mode_name = rr["phase_reward_mode"]
+        blue_flag = rr["reward_blue"]
+
+        suffix = f"{mode_name}" + ("_blue" if blue_flag else "")
+        run_dir = base_run_dir / suffix
+        ensure_dir(run_dir)
+
+        print(f"\n[main] Starting run: reward_mode={mode_name}, reward_blue={blue_flag}")
+        run_explainability_profiles(
+            submission=submission,
+            output_dir=str(run_dir),
+            max_eps=args.max_eps,
+            seed=args.seed,
+            episode_length=args.episode_length,
+            shap=args.shap,
+            is_heuristic=args.is_heuristic,
+            phase_reward_mode=mode_name,
+            reward_blue=blue_flag,
+            mode=args.mode,
+            strategy=args.strategy,
+            single_profile=args.single_profile,
+            profile_weights=weights,
+            include_mixed_in_sweep=args.include_mixed_in_sweep,
+        )
 
     """python explain.py \
   --mode sweep \
-  --max-eps 10 \
-  --episode-length 100 \
+  --reward_mode_strategy single \
+  --max-eps 100 \
+  --episode-length 500 \
   --non-heuristic \
   --seed 1337 \
-  --phase_reward_mode red_only \
   --submission-path ."""

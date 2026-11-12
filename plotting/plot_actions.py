@@ -584,7 +584,8 @@ def main():
 
 
     model_dirs = {
-        "Heuristic": RESULTS_DIR / "Heuristic",
+        "Curriculum": RESULTS_DIR / "Curriculum",
+        "Red_rew": RESULTS_DIR / "Red_Rew_only/default",
         "SimpleGNN": RESULTS_DIR / "SimpleGNN",
     }
 

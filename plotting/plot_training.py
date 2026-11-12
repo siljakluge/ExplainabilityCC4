@@ -11,9 +11,12 @@ import scienceplots  # noqa: F401
 
 BASE_DIR = Path(__file__).resolve().parent.parent  # geht von plotting/ eine Ebene hoch
 CSV_DIR = BASE_DIR / "exported_csv"
-
+"""
+("SimpleGNN", CSV_DIR / "contractoractive.csv"),
+("Red_Rew_Only", CSV_DIR / "red_rew_only.csv"),
+"""
 RUNS = [
-    ("SimpleGNN", CSV_DIR / "contractoractive.csv"),
+    ("Curriculum", CSV_DIR / "default_curriculum.csv"),
 ]
 
 OUTDIR = Path("Plots/trainingCurves")

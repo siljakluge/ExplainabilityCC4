@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, List
 import random
 from tqdm import tqdm
 from joblib import Parallel, delayed
@@ -116,7 +116,21 @@ CAGE Challenge 4 enterprise cyber defense setting.
 
 Runs:  python evaluate.py --mode sweep --model-name Baseline_50k_2 --eps-per-profile 100 --distribute 4 --submission-path . --seed 1337 --overwrite
 """
+REWARD_MODES = ["default", "contractor_off", "red_only"]
 
+def parse_reward_modes(s: str) -> List[str]:
+    if not s.strip():
+        return []
+    modes = [x.strip() for x in s.split(",") if x.strip()]
+    bad = [m for m in modes if m not in REWARD_MODES]
+    if bad:
+        raise ValueError(f"Unknown reward mode(s): {bad}. Available: {REWARD_MODES}")
+    return modes
+
+def parse_name_set(s: str) -> set[str]:
+    if not s.strip():
+        return set()
+    return {x.strip() for x in s.split(",") if x.strip()}
 EPISODE_LENGTH = 500
 # ----------------------------
 # Red profiles (same pattern as train.py)
@@ -603,6 +617,36 @@ if __name__ == "__main__":
     # IMPORTANT: make these CLI args, don't hardcode
     parser.add_argument("--output-path", type=str, default="evaluation_out")
     parser.add_argument("--submission-path", type=str, default=".")
+
+    REWARD_MODES = ["default", "contractor_off", "red_only"]
+
+    parser.add_argument(
+        "--phase_reward_mode",
+        default="default",
+        choices=REWARD_MODES,
+        help="Single reward mode to use if --reward_mode_strategy=single."
+    )
+    parser.add_argument(
+        "--reward_mode_strategy",
+        choices=["single", "sweep"],
+        default="single",
+        help="Run one reward mode or sweep across multiple reward modes."
+    )
+    parser.add_argument(
+        "--reward_modes",
+        default="",
+        help='Comma-separated reward modes for sweep, e.g. "default,red_only". Empty => all.'
+    )
+    parser.add_argument(
+        "--reward_blue",
+        action="store_true",
+        help="Enable blue analyse reward for single-mode runs."
+    )
+    parser.add_argument(
+        "--reward_blue_modes",
+        default="",
+        help='Optional comma-separated reward modes for blue analyse reward in sweep mode, e.g. "red_only".'
+    )
 
     args = parser.parse_args()
 
