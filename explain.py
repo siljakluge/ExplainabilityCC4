@@ -513,6 +513,8 @@ def run_explainability_profiles(
                 log_path_actions=prof_dir / "actions.jsonl",
                 is_heuristic=is_heuristic,
                 shap=shap,
+                prof_dir=prof_dir,
+                epi=epi,
             )
             totals_by_profile.setdefault(prof, []).append(r)
             if shap:
