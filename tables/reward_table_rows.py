@@ -13,7 +13,6 @@ RESULTS_DIR = BASE_DIR / "Result"
 MODELS = [
     "Heuristic",
     "SimpleGNN",
-    "RedVariants",
     "Sleep",
 ]
 
