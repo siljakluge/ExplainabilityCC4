@@ -8,8 +8,8 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import scienceplots
-"""The OG Script"""
+import scienceplots  # noqa: F401
+
 
 SUBNET_LABEL_MAP = {
     "admin_network_subnet": "Admin",
@@ -32,13 +32,20 @@ ATTACKER_ORDER = [
     "lateral_spread",
     "stealth_pivot",
 ]
-BASE_DIR = Path(__file__).resolve().parent.parent  # geht von plotting/ eine Ebene hoch
+
+REWARD_MODES = ["default"]
+
+BASE_DIR = Path(__file__).resolve().parent.parent
 RESULTS_DIR = BASE_DIR / "Result"
-MODEL_DIRS_DEFAULT = {
+
+"""MODEL_DIRS_DEFAULT = {
     "SimpleGNN": RESULTS_DIR / "SimpleGNN",
     "Heuristic": RESULTS_DIR / "Heuristic",
     "RedVariants": RESULTS_DIR / "RedVariants",
     "Sleep": RESULTS_DIR / "Sleep",
+}"""
+MODEL_DIRS_DEFAULT = {
+    "Curriculum": RESULTS_DIR / "Curriculum",
 }
 
 OKABE_ITO = [
@@ -64,7 +71,22 @@ SUBNET_ORDER = [
     "internet_subnet",
     "action_cost",
 ]
+def compute_ylim(df: pd.DataFrame, pad: float = 0.1) -> tuple[float, float]:
+    """
+    Compute dynamic y-limits based on most negative value in df.
+    Always keeps 0 at top.
+    """
+    if df.empty:
+        return (-1.0, 0.0)
 
+    min_val = float(df["value"].min())
+
+    # ensure negative range (important if something is all 0)
+    if min_val >= 0:
+        min_val = -1.0
+
+    y_min = min_val * (1.0 + pad)
+    return y_min, 0.0
 
 def _style_rcparams():
     plt.rcParams.update(
@@ -109,10 +131,6 @@ def _apply_common_axes_style(ax: plt.Axes, y_label: str):
 
 
 def reconstruct_episode_from_steps(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Reconstruct episode ids when broken logging always wrote episode=0.
-    Assumes rows are in logging order and each new episode starts when step decreases.
-    """
     if df.empty:
         return df
 
@@ -148,10 +166,6 @@ def read_jsonl(path: Path) -> list[dict]:
 
 
 def parse_reward_log(log_path: Path) -> pd.DataFrame:
-    """
-    Output columns:
-      profile, step, phase, subnet, value, reward_total
-    """
     rows = []
     entries = read_jsonl(log_path)
 
@@ -165,7 +179,6 @@ def parse_reward_log(log_path: Path) -> pd.DataFrame:
         reward_total = float(obj.get("total", 0.0))
         reward_list = obj.get("reward_list", {})
 
-        # even if reward_list is empty, keep total row implicit via join later
         if reward_list:
             for subnet, compdict in reward_list.items():
                 subnet_val = 0.0
@@ -197,19 +210,10 @@ def parse_reward_log(log_path: Path) -> pd.DataFrame:
     if df.empty:
         return df
 
-    df = reconstruct_episode_from_steps(df)
-    return df
+    return reconstruct_episode_from_steps(df)
 
 
 def parse_scalar_log(log_path: Path) -> pd.DataFrame:
-    """
-    Output columns:
-      profile, step, total_scalar
-    Supports either:
-      {"rewards": -5}
-    or
-      {"total_scalar": -5}
-    """
     rows = []
     entries = read_jsonl(log_path)
 
@@ -238,8 +242,7 @@ def parse_scalar_log(log_path: Path) -> pd.DataFrame:
     if df.empty:
         return df
 
-    df = reconstruct_episode_from_steps(df)
-    return df
+    return reconstruct_episode_from_steps(df)
 
 
 def build_attacker_subnet_table(
@@ -247,17 +250,12 @@ def build_attacker_subnet_table(
     scalar_log_path: Path,
     avg: bool = True,
 ) -> pd.DataFrame:
-    """
-    Returns:
-      attacker x subnet table with subnets + action_cost
-    """
     df_r = parse_reward_log(reward_log_path)
     df_s = parse_scalar_log(scalar_log_path)
 
     if df_r.empty and df_s.empty:
         return pd.DataFrame()
 
-    # ---- subnet reward aggregation ----
     subnet_part = pd.DataFrame(columns=["profile", "subnet", "value"])
 
     if not df_r.empty:
@@ -278,9 +276,7 @@ def build_attacker_subnet_table(
                 .reset_index()
             )
 
-    # ---- reward_total per step (deduplicate step-level rows) ----
     reward_total_step = pd.DataFrame(columns=["profile", "episode_recon", "step", "reward_total"])
-
     if not df_r.empty:
         reward_total_step = (
             df_r.groupby(["profile", "episode_recon", "step"], dropna=True)["reward_total"]
@@ -288,9 +284,7 @@ def build_attacker_subnet_table(
             .reset_index()
         )
 
-    # ---- scalar_total per step ----
     scalar_total_step = pd.DataFrame(columns=["profile", "episode_recon", "step", "total_scalar"])
-
     if not df_s.empty:
         scalar_total_step = (
             df_s.groupby(["profile", "episode_recon", "step"], dropna=True)["total_scalar"]
@@ -298,7 +292,6 @@ def build_attacker_subnet_table(
             .reset_index()
         )
 
-    # ---- action cost ----
     action_cost_part = pd.DataFrame(columns=["profile", "subnet", "value"])
 
     if not reward_total_step.empty and not scalar_total_step.empty:
@@ -328,7 +321,6 @@ def build_attacker_subnet_table(
         action_cost_part["subnet"] = "action_cost"
         action_cost_part = action_cost_part.rename(columns={"action_cost": "value"})
 
-    # ---- combine ----
     combined = pd.concat([subnet_part, action_cost_part], ignore_index=True)
 
     if combined.empty:
@@ -339,25 +331,71 @@ def build_attacker_subnet_table(
     return combined
 
 
-def plot_model_attacker_lines(
+def parse_reward_modes_arg(single_mode: Optional[str], modes_arg: str) -> list[str]:
+    if single_mode:
+        if single_mode not in REWARD_MODES:
+            raise ValueError(f"Unknown reward mode '{single_mode}'. Available: {REWARD_MODES}")
+        return [single_mode]
+
+    if modes_arg.strip():
+        modes = [m.strip() for m in modes_arg.split(",") if m.strip()]
+        bad = [m for m in modes if m not in REWARD_MODES]
+        if bad:
+            raise ValueError(f"Unknown reward mode(s): {bad}. Available: {REWARD_MODES}")
+        return modes
+
+    return REWARD_MODES
+
+
+def resolve_mode_dir(model_dir: Path, reward_mode: str, reward_blue: bool = False) -> Optional[Path]:
+    """
+    Supports:
+      old layout:
+        model_dir/<attacker>/
+      new layout:
+        model_dir/<reward_mode>/
+        model_dir/<reward_mode>_blue/
+    """
+    candidates = []
+    if reward_blue:
+        candidates.append(model_dir / f"{reward_mode}_blue")
+    candidates.append(model_dir / reward_mode)
+    candidates.append(model_dir)
+
+    for cand in candidates:
+        if not cand.exists():
+            continue
+        attacker_dirs = [cand / a for a in ATTACKER_ORDER]
+        if any((d / "reward_log.jsonl").exists() for d in attacker_dirs):
+            return cand
+
+    return None
+
+
+def load_model_mode_table(
     model_name: str,
     model_dir: Path,
-    out_dir: Path,
+    reward_mode: str,
     attackers: Optional[list[str]] = None,
     avg: bool = True,
-    show_legend: bool = False,
-):
+    reward_blue: bool = False,
+) -> pd.DataFrame:
     if attackers is None:
         attackers = ATTACKER_ORDER
+
+    mode_dir = resolve_mode_dir(model_dir, reward_mode=reward_mode, reward_blue=reward_blue)
+    if mode_dir is None:
+        print(f"[warn] No directory found for {model_name} / reward_mode={reward_mode} / reward_blue={reward_blue}")
+        return pd.DataFrame()
 
     rows = []
 
     for attacker in attackers:
-        reward_log = model_dir / attacker / "reward_log.jsonl"
-        scalar_log = model_dir / attacker / "scalar_rewards.jsonl"
+        reward_log = mode_dir / attacker / "reward_log.jsonl"
+        scalar_log = mode_dir / attacker / "scalar_rewards.jsonl"
 
         if not reward_log.exists() or not scalar_log.exists():
-            print(f"[warn] Missing logs for {model_name}/{attacker}")
+            print(f"[warn] Missing logs for {model_name}/{mode_dir.name}/{attacker}")
             continue
 
         table = build_attacker_subnet_table(reward_log, scalar_log, avg=avg)
@@ -366,13 +404,40 @@ def plot_model_attacker_lines(
 
         table = table.copy()
         table["attacker"] = attacker
+        table["reward_mode"] = reward_mode
         rows.append(table)
 
     if not rows:
-        print(f"[warn] No data found for model {model_name}")
-        return None
+        return pd.DataFrame()
 
-    df = pd.concat(rows, ignore_index=True)
+    return pd.concat(rows, ignore_index=True)
+
+
+def plot_model_attacker_lines(
+    model_name: str,
+    model_dir: Path,
+    out_dir: Path,
+    reward_mode: str,
+    attackers: Optional[list[str]] = None,
+    avg: bool = True,
+    show_legend: bool = False,
+    reward_blue: bool = False,
+):
+    if attackers is None:
+        attackers = ATTACKER_ORDER
+
+    df = load_model_mode_table(
+        model_name=model_name,
+        model_dir=model_dir,
+        reward_mode=reward_mode,
+        attackers=attackers,
+        avg=avg,
+        reward_blue=reward_blue,
+    )
+
+    if df.empty:
+        print(f"[warn] No data found for model {model_name}, reward mode {reward_mode}")
+        return None
 
     with plt.style.context(["science", "ieee", "bright", "no-latex"]):
         _style_rcparams()
@@ -412,12 +477,11 @@ def plot_model_attacker_lines(
         ax.set_xticklabels(pretty_labels, rotation=25, ha="right", fontsize=9)
 
         _apply_common_axes_style(ax, y_label="Avg Reward" if avg else "Cumulative Reward")
-        ax.set_title(model_name, fontsize=12, fontweight="bold")
+        title_suffix = reward_mode + (" + blue" if reward_blue else "")
+        ax.set_title(f"{model_name} ({title_suffix})", fontsize=12, fontweight="bold")
 
-        if "sleep" in model_name.lower():
-            ax.set_yticks([0, -1000, -2000, -3000])
-        else:
-            ax.set_yticks([0, -50, -100, -150])
+        y_min, y_max = compute_ylim(df)
+        ax.set_ylim(y_min, y_max)
 
         if show_legend:
             ax.legend(
@@ -428,45 +492,38 @@ def plot_model_attacker_lines(
                 borderpad=0.4,
             )
 
-        stem = f"{model_name}_reward_decomposition_lines_{'avg' if avg else 'sum'}"
+        suffix = f"{reward_mode}" + ("_blue" if reward_blue else "")
+        stem = f"{model_name}_reward_decomposition_lines_{suffix}_{'avg' if avg else 'sum'}"
         return _save_fig(fig, out_dir, stem)
+
 
 def plot_all_models_2x2(
     model_dirs: dict[str, Path],
     out_dir: Path,
+    reward_mode: str,
     attackers: Optional[list[str]] = None,
     avg: bool = True,
+    reward_blue: bool = False,
 ):
     if attackers is None:
         attackers = ATTACKER_ORDER
 
     model_tables = {}
 
-    # ---- load data for all models ----
     for model_name, model_dir in model_dirs.items():
-        rows = []
-
-        for attacker in attackers:
-            reward_log = model_dir / attacker / "reward_log.jsonl"
-            scalar_log = model_dir / attacker / "scalar_rewards.jsonl"
-
-            if not reward_log.exists() or not scalar_log.exists():
-                print(f"[warn] Missing logs for {model_name}/{attacker}")
-                continue
-
-            table = build_attacker_subnet_table(reward_log, scalar_log, avg=avg)
-            if table.empty:
-                continue
-
-            table = table.copy()
-            table["attacker"] = attacker
-            rows.append(table)
-
-        if rows:
-            model_tables[model_name] = pd.concat(rows, ignore_index=True)
+        df = load_model_mode_table(
+            model_name=model_name,
+            model_dir=model_dir,
+            reward_mode=reward_mode,
+            attackers=attackers,
+            avg=avg,
+            reward_blue=reward_blue,
+        )
+        if not df.empty:
+            model_tables[model_name] = df
 
     if not model_tables:
-        print("[warn] No model data found.")
+        print(f"[warn] No model data found for reward mode {reward_mode}.")
         return None
 
     with plt.style.context(["science", "ieee", "bright", "no-latex"]):
@@ -474,7 +531,7 @@ def plot_all_models_2x2(
 
         fig, axes = plt.subplots(
             2, 2,
-            figsize=(7.16, 3.6),  # breiter Eindruck, weniger Höhe
+            figsize=(7.16, 3.6),
             sharex=True,
             sharey=False
         )
@@ -498,11 +555,6 @@ def plot_all_models_2x2(
 
         x_labels = SUBNET_ORDER
         x = np.arange(len(x_labels))
-
-        global_min = 0.0
-        for df in model_tables.values():
-            if not df.empty:
-                global_min = min(global_min, float(df["value"].min()))
 
         for ax, (model_name, df) in zip(axes, model_tables.items()):
             for attacker in attackers:
@@ -531,7 +583,6 @@ def plot_all_models_2x2(
             ax.set_title(model_name, fontsize=11, fontweight="bold")
             ax.grid(axis="y", alpha=0.25, zorder=0)
             ax.axhline(0.0, linewidth=1.2, color="black", zorder=3)
-
             ax.spines["top"].set_visible(False)
             ax.spines["right"].set_visible(False)
 
@@ -539,12 +590,12 @@ def plot_all_models_2x2(
             ax.set_xticks(x)
             ax.set_xticklabels(pretty_labels, rotation=25, ha="right", fontsize=9)
 
-            if "sleep" in model_name.lower():
-                ax.set_yticks([0, -1000, -2000, -3000])
-            else:
-                ax.set_yticks([0, -100, -200, -300])
+            y_min, y_max = compute_ylim(df)
+            ax.set_ylim(y_min, y_max)
 
-        # axis labels only where needed
+        for i in range(len(model_tables), len(axes)):
+            axes[i].axis("off")
+
         axes[0].set_ylabel("Avg Reward" if avg else "Cumulative Reward")
         axes[2].set_ylabel("Avg Reward" if avg else "Cumulative Reward")
         axes[2].set_xlabel("Subnet", fontsize=10)
@@ -552,22 +603,22 @@ def plot_all_models_2x2(
 
         for ax in axes:
             ax.tick_params(axis="x", pad=1)
-        for ax in axes:
             ax.xaxis.labelpad = 2
             ax.yaxis.labelpad = 2
 
-        # one shared legend above all plots
+        title_suffix = reward_mode + (" + blue" if reward_blue else "")
         fig.legend(
             legend_handles,
             legend_labels,
             loc="upper center",
             bbox_to_anchor=(0.5, 1.015),
-            ncol=len(legend_labels),   # alles in eine Zeile
+            ncol=len(legend_labels),
             frameon=True,
             fontsize=11,
             handlelength=1.5,
             columnspacing=0.9,
             borderpad=0.3,
+            title=title_suffix,
         )
 
         fig.subplots_adjust(
@@ -579,7 +630,8 @@ def plot_all_models_2x2(
             hspace=0.18
         )
 
-        stem = f"reward_decomposition_all_models_2x2_{'avg' if avg else 'sum'}"
+        suffix = f"{reward_mode}" + ("_blue" if reward_blue else "")
+        stem = f"reward_decomposition_all_models_2x2_{suffix}_{'avg' if avg else 'sum'}"
         return _save_fig(fig, out_dir, stem)
 
 
@@ -587,39 +639,63 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=Path, default=Path("Plots/RewardDecomp"))
     ap.add_argument("--sum", action="store_true")
+
+    ap.add_argument(
+        "--reward-mode",
+        type=str,
+        default=None,
+        choices=REWARD_MODES,
+        help="Plot exactly one reward mode."
+    )
+    ap.add_argument(
+        "--reward-modes",
+        type=str,
+        default="",
+        help='Comma-separated reward modes to plot, e.g. "default,red_only". Empty => all.'
+    )
+    ap.add_argument(
+        "--reward-blue",
+        action="store_true",
+        help="Look for <reward_mode>_blue directories instead of plain <reward_mode>."
+    )
+
     args = ap.parse_args()
 
     avg = not args.sum
     out_dir = Path(args.out)
+    reward_modes = parse_reward_modes_arg(args.reward_mode, args.reward_modes)
 
     saved = []
-    for model_name, model_dir in MODEL_DIRS_DEFAULT.items():
-        p = plot_model_attacker_lines(
-            model_name=model_name,
-            model_dir=model_dir,
+
+    for reward_mode in reward_modes:
+        for model_name, model_dir in MODEL_DIRS_DEFAULT.items():
+            p = plot_model_attacker_lines(
+                model_name=model_name,
+                model_dir=model_dir,
+                out_dir=out_dir,
+                reward_mode=reward_mode,
+                attackers=ATTACKER_ORDER,
+                avg=avg,
+                reward_blue=args.reward_blue,
+                show_legend=True,
+            )
+            if p is not None:
+                saved.append(p)
+
+        out = plot_all_models_2x2(
+            model_dirs=MODEL_DIRS_DEFAULT,
             out_dir=out_dir,
+            reward_mode=reward_mode,
             attackers=ATTACKER_ORDER,
             avg=avg,
+            reward_blue=args.reward_blue,
         )
-        if p is not None:
-            saved.append(p)
+        if out is not None:
+            saved.append(out)
 
     print("Saved figures:")
     for p in saved:
         print(f" - {p}")
-
-    model_dirs = MODEL_DIRS_DEFAULT
-
-    out = plot_all_models_2x2(
-        model_dirs=model_dirs,
-        out_dir=out_dir,
-        attackers=ATTACKER_ORDER,
-        avg=avg,
-    )
-
-    print("Saved figures:")
-    if out is not None:
-        print(f" - {out}")
 
 
 if __name__ == "__main__":
