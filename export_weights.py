@@ -5,8 +5,8 @@ from models.cage4 import load  # eure load()-Funktion
 contractor_active = True
 
 if contractor_active:
-    SRC = "checkpoints/default_curriculum"  # this is the prefix used by train.py: f"{fname}-{i}_checkpoint.pt"
-    DST = "weights/default_curriculum"
+    SRC = "checkpoints/contractoractive"  # this is the prefix used by train.py: f"{fname}-{i}_checkpoint.pt"
+    DST = "weights/contractor_active"
 else:
     SRC = "checkpoints/contractorinactive"   # <-- fname aus train.py
     DST = "weights/contractor_inactive"
